@@ -1,0 +1,201 @@
+/* ============================================================
+   Fortest Design System — Master Stylesheet
+   ============================================================ */
+
+/* --- CSS Reset --- */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html {
+  scroll-behavior: smooth;
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
+body {
+  min-height: 100vh;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+img, picture, video, canvas, svg {
+  display: block;
+  max-width: 100%;
+}
+
+input, button, textarea, select {
+  font: inherit;
+  color: inherit;
+}
+
+button {
+  cursor: pointer;
+  background: none;
+  border: none;
+}
+
+ul, ol {
+  list-style: none;
+}
+
+a {
+  text-decoration: none;
+  color: inherit;
+}
+
+/* --- Dark Theme (Default) --- */
+:root,
+:root[data-theme="dark"] {
+  --bg-primary: hsl(225, 15%, 10%);
+  --bg-secondary: hsl(225, 15%, 13%);
+  --bg-tertiary: hsl(225, 12%, 17%);
+  --bg-elevated: hsl(225, 12%, 20%);
+  --bg-hover: hsl(225, 12%, 23%);
+
+  --text-primary: hsl(220, 20%, 92%);
+  --text-secondary: hsl(220, 12%, 65%);
+  --text-tertiary: hsl(220, 10%, 45%);
+
+  --border-primary: hsl(225, 12%, 22%);
+  --border-secondary: hsl(225, 12%, 18%);
+  --border-focus: hsl(250, 80%, 65%);
+
+  --accent-primary: hsl(250, 80%, 65%);
+  --accent-hover: hsl(250, 80%, 72%);
+  --accent-active: hsl(250, 80%, 58%);
+  --accent-subtle: hsla(250, 80%, 65%, 0.12);
+
+  --method-get: hsl(145, 65%, 50%);
+  --method-post: hsl(220, 80%, 60%);
+  --method-put: hsl(35, 85%, 55%);
+  --method-patch: hsl(280, 60%, 60%);
+  --method-delete: hsl(0, 70%, 58%);
+  --method-head: hsl(180, 50%, 50%);
+  --method-options: hsl(60, 60%, 50%);
+
+  --status-2xx: hsl(145, 65%, 50%);
+  --status-3xx: hsl(45, 85%, 55%);
+  --status-4xx: hsl(25, 85%, 55%);
+  --status-5xx: hsl(0, 70%, 58%);
+
+  --shadow-sm: 0 1px 2px hsla(0, 0%, 0%, 0.3);
+  --shadow-md: 0 4px 12px hsla(0, 0%, 0%, 0.4);
+  --shadow-lg: 0 8px 24px hsla(0, 0%, 0%, 0.5);
+
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
+  --radius-xl: 12px;
+
+  --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --font-mono: 'JetBrains Mono', 'SF Mono', 'Fira Code', monospace;
+
+  --transition-fast: 120ms ease;
+  --transition-normal: 200ms ease;
+  --transition-slow: 300ms ease;
+
+  --sidebar-width: 280px;
+  --toolbar-height: 48px;
+  --tab-bar-height: 40px;
+
+  --scrollbar-track: var(--bg-secondary);
+  --scrollbar-thumb: var(--bg-elevated);
+  --scrollbar-thumb-hover: hsl(225, 12%, 30%);
+}
+
+/* --- Light Theme --- */
+:root[data-theme="light"] {
+  --bg-primary: hsl(220, 20%, 97%);
+  --bg-secondary: hsl(220, 20%, 94%);
+  --bg-tertiary: hsl(0, 0%, 100%);
+  --bg-elevated: hsl(220, 15%, 96%);
+  --bg-hover: hsl(220, 15%, 92%);
+
+  --text-primary: hsl(225, 20%, 15%);
+  --text-secondary: hsl(225, 10%, 45%);
+  --text-tertiary: hsl(225, 8%, 65%);
+
+  --border-primary: hsl(220, 15%, 88%);
+  --border-secondary: hsl(220, 15%, 92%);
+  --border-focus: hsl(250, 80%, 60%);
+
+  --accent-primary: hsl(250, 75%, 55%);
+  --accent-hover: hsl(250, 75%, 48%);
+  --accent-active: hsl(250, 75%, 42%);
+  --accent-subtle: hsla(250, 75%, 55%, 0.08);
+
+  --shadow-sm: 0 1px 2px hsla(0, 0%, 0%, 0.06);
+  --shadow-md: 0 4px 12px hsla(0, 0%, 0%, 0.08);
+  --shadow-lg: 0 8px 24px hsla(0, 0%, 0%, 0.12);
+
+  --scrollbar-track: var(--bg-secondary);
+  --scrollbar-thumb: hsl(220, 12%, 82%);
+  --scrollbar-thumb-hover: hsl(220, 12%, 72%);
+}
+
+/* --- Global Styles --- */
+body {
+  background-color: var(--bg-primary);
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+#root {
+  min-height: 100vh;
+}
+
+/* --- Scrollbar Styling --- */
+
+/* Webkit (Chrome, Safari, Edge) */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--scrollbar-track);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--scrollbar-thumb);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--scrollbar-thumb-hover);
+}
+
+::-webkit-scrollbar-corner {
+  background: var(--scrollbar-track);
+}
+
+/* Firefox */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
+}
+
+/* --- Focus Visible --- */
+:focus-visible {
+  outline: 2px solid var(--border-focus);
+  outline-offset: 2px;
+}
+
+/* Remove default focus outline to rely on focus-visible */
+:focus:not(:focus-visible) {
+  outline: none;
+}
+
+/* --- Selection --- */
+::selection {
+  background-color: var(--accent-subtle);
+  color: var(--accent-primary);
+}
