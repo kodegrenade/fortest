@@ -1,0 +1,274 @@
+import { create } from 'zustand';
+import type { TestBucket, ActionGroup, Step } from '@fortest/types';
+
+interface BucketState {
+  buckets: TestBucket[];
+  activeBucketId: string | null;
+  activeGroupId: string | null;
+  activeStepId: string | null;
+  isLoading: boolean;
+  error: string | null;
+
+  // Bucket CRUD
+  loadBuckets: () => Promise<void>;
+  createBucket: (name: string, baseUrl?: string) => Promise<void>;
+  updateBucket: (id: string, data: Partial<TestBucket>) => Promise<void>;
+  deleteBucket: (id: string) => Promise<void>;
+
+  // Navigation
+  setActiveBucket: (id: string | null) => void;
+  setActiveGroup: (id: string | null) => void;
+  setActiveStep: (id: string | null) => void;
+
+  // Computed helpers
+  getActiveBucket: () => TestBucket | undefined;
+  getActiveGroup: () => ActionGroup | undefined;
+  getActiveStep: () => Step | undefined;
+
+  // Nested mutations
+  addActionGroup: (bucketId: string, name: string) => Promise<void>;
+  updateActionGroup: (bucketId: string, groupId: string, data: Partial<ActionGroup>) => Promise<void>;
+  deleteActionGroup: (bucketId: string, groupId: string) => Promise<void>;
+  addStep: (bucketId: string, groupId: string, name: string) => Promise<void>;
+  updateStep: (bucketId: string, groupId: string, stepId: string, data: Partial<Step>) => Promise<void>;
+  deleteStep: (bucketId: string, groupId: string, stepId: string) => Promise<void>;
+}
+
+export const useBucketStore = create<BucketState>((set, get) => ({
+  buckets: [],
+  activeBucketId: null,
+  activeGroupId: null,
+  activeStepId: null,
+  isLoading: false,
+  error: null,
+
+  loadBuckets: async () => {
+    set({ isLoading: true, error: null });
+    try {
+      const res = await fetch('/api/buckets');
+      if (!res.ok) throw new Error('Failed to load buckets');
+      const buckets = await res.json();
+      set({ buckets, isLoading: false });
+    } catch (err: any) {
+      set({ error: err.message || 'Failed to load buckets', isLoading: false });
+    }
+  },
+
+  createBucket: async (name, baseUrl) => {
+    set({ isLoading: true, error: null });
+    try {
+      const res = await fetch('/api/buckets', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, baseUrl }),
+      });
+      if (!res.ok) throw new Error('Failed to create bucket');
+      await get().loadBuckets();
+    } catch (err: any) {
+      const errMsg = err.message || 'Failed to create bucket';
+      set({ error: errMsg, isLoading: false });
+      throw new Error(errMsg);
+    }
+  },
+
+  updateBucket: async (id, data) => {
+    set({ error: null });
+    try {
+      const res = await fetch(`/api/buckets/${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data),
+      });
+      if (!res.ok) throw new Error('Failed to update bucket');
+      await get().loadBuckets();
+    } catch (err: any) {
+      const errMsg = err.message || 'Failed to update bucket';
+      set({ error: errMsg });
+      throw new Error(errMsg);
+    }
+  },
+
+  deleteBucket: async (id) => {
+    set({ error: null });
+    try {
+      const res = await fetch(`/api/buckets/${id}`, {
+        method: 'DELETE',
+      });
+      if (!res.ok) throw new Error('Failed to delete bucket');
+      
+      const { activeBucketId } = get();
+      if (activeBucketId === id) {
+        set({ activeBucketId: null, activeGroupId: null, activeStepId: null });
+      }
+      
+      await get().loadBuckets();
+    } catch (err: any) {
+      const errMsg = err.message || 'Failed to delete bucket';
+      set({ error: errMsg });
+      throw new Error(errMsg);
+    }
+  },
+
+  setActiveBucket: (id) => set({ activeBucketId: id, activeGroupId: null, activeStepId: null }),
+  setActiveGroup: (id) => set({ activeGroupId: id, activeStepId: null }),
+  setActiveStep: (id) => set({ activeStepId: id }),
+
+  getActiveBucket: () => {
+    const { buckets, activeBucketId } = get();
+    return buckets.find((b) => b.id === activeBucketId);
+  },
+
+  getActiveGroup: () => {
+    const bucket = get().getActiveBucket();
+    if (!bucket) return undefined;
+    return bucket.actionGroups.find((g) => g.id === get().activeGroupId);
+  },
+
+  getActiveStep: () => {
+    const group = get().getActiveGroup();
+    if (!group) return undefined;
+    return group.steps.find((s) => s.id === get().activeStepId);
+  },
+
+  addActionGroup: async (bucketId, name) => {
+    const bucket = get().buckets.find((b) => b.id === bucketId);
+    if (!bucket) return;
+
+    const newGroup: ActionGroup = {
+      id: crypto.randomUUID(),
+      name,
+      description: '',
+      order: bucket.actionGroups.length,
+      steps: [],
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+
+    const updatedGroups = [...bucket.actionGroups, newGroup];
+    await get().updateBucket(bucketId, { actionGroups: updatedGroups });
+  },
+
+  updateActionGroup: async (bucketId, groupId, data) => {
+    const bucket = get().buckets.find((b) => b.id === bucketId);
+    if (!bucket) return;
+
+    const updatedGroups = bucket.actionGroups.map((g) => {
+      if (g.id === groupId) {
+        return {
+          ...g,
+          ...data,
+          updatedAt: new Date().toISOString(),
+        };
+      }
+      return g;
+    });
+
+    await get().updateBucket(bucketId, { actionGroups: updatedGroups });
+  },
+
+  deleteActionGroup: async (bucketId, groupId) => {
+    const bucket = get().buckets.find((b) => b.id === bucketId);
+    if (!bucket) return;
+
+    const updatedGroups = bucket.actionGroups
+      .filter((g) => g.id !== groupId)
+      .map((g, index) => ({ ...g, order: index }));
+
+    const { activeGroupId } = get();
+    if (activeGroupId === groupId) {
+      set({ activeGroupId: null, activeStepId: null });
+    }
+
+    await get().updateBucket(bucketId, { actionGroups: updatedGroups });
+  },
+
+  addStep: async (bucketId, groupId, name) => {
+    const bucket = get().buckets.find((b) => b.id === bucketId);
+    if (!bucket) return;
+
+    const group = bucket.actionGroups.find((g) => g.id === groupId);
+    if (!group) return;
+
+    const newStep: Step = {
+      id: crypto.randomUUID(),
+      name,
+      order: group.steps.length,
+      method: 'GET',
+      path: '/',
+      headers: [],
+      params: [],
+      body: { type: 'none', content: '' },
+      auth: { type: 'none' },
+      extractions: [],
+      assertions: [],
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+
+    const updatedGroups = bucket.actionGroups.map((g) => {
+      if (g.id === groupId) {
+        return {
+          ...g,
+          steps: [...g.steps, newStep],
+          updatedAt: new Date().toISOString(),
+        };
+      }
+      return g;
+    });
+
+    await get().updateBucket(bucketId, { actionGroups: updatedGroups });
+  },
+
+  updateStep: async (bucketId, groupId, stepId, data) => {
+    const bucket = get().buckets.find((b) => b.id === bucketId);
+    if (!bucket) return;
+
+    const updatedGroups = bucket.actionGroups.map((g) => {
+      if (g.id === groupId) {
+        return {
+          ...g,
+          steps: g.steps.map((s) => {
+            if (s.id === stepId) {
+              return {
+                ...s,
+                ...data,
+                updatedAt: new Date().toISOString(),
+              };
+            }
+            return s;
+          }),
+          updatedAt: new Date().toISOString(),
+        };
+      }
+      return g;
+    });
+
+    await get().updateBucket(bucketId, { actionGroups: updatedGroups });
+  },
+
+  deleteStep: async (bucketId, groupId, stepId) => {
+    const bucket = get().buckets.find((b) => b.id === bucketId);
+    if (!bucket) return;
+
+    const updatedGroups = bucket.actionGroups.map((g) => {
+      if (g.id === groupId) {
+        const filteredSteps = g.steps
+          .filter((s) => s.id !== stepId)
+          .map((s, index) => ({ ...s, order: index }));
+        return {
+          ...g,
+          steps: filteredSteps,
+          updatedAt: new Date().toISOString(),
+        };
+      }
+      return g;
+    });
+
+    const { activeStepId } = get();
+    if (activeStepId === stepId) {
+      set({ activeStepId: null });
+    }
+
+    await get().updateBucket(bucketId, { actionGroups: updatedGroups });
+  },
+}));

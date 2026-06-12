@@ -563,3 +563,20 @@
   min-height: 100vh;
   background-color: var(--bg-primary);
 }
+
+/* --- Spinner Utility --- */
+.spinner {
+  width: 18px;
+  height: 18px;
+  border: 2px solid var(--border-primary);
+  border-top-color: var(--accent-primary);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+

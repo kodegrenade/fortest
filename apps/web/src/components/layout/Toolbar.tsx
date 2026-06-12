@@ -1,4 +1,5 @@
 import { useThemeStore } from '@/stores/themeStore';
+import { useBucketStore } from '@/stores/bucketStore';
 import { LogoIcon, SunIcon, MoonIcon, MonitorIcon } from '@/components/common/Icons';
 
 const THEME_ICONS = {
@@ -16,6 +17,7 @@ const THEME_LABELS = {
 export function Toolbar() {
   const theme = useThemeStore((s) => s.theme);
   const toggleTheme = useThemeStore((s) => s.toggleTheme);
+  const activeBucket = useBucketStore((s) => s.buckets.find((b) => b.id === s.activeBucketId));
 
   const ThemeIcon = THEME_ICONS[theme];
 
@@ -25,6 +27,19 @@ export function Toolbar() {
         <LogoIcon size={22} className="toolbar__logo-icon" />
         <span className="toolbar__logo-text">Fortest</span>
       </div>
+
+      {activeBucket && (
+        <div className="toolbar__bucket-context" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+          <span className="toolbar__bucket-name" style={{ fontWeight: 600, fontSize: '13px', color: 'var(--text-primary)' }}>
+            {activeBucket.name}
+          </span>
+          {activeBucket.baseUrl && (
+            <span className="toolbar__bucket-url" style={{ fontFamily: 'var(--font-mono)', fontSize: '11px', color: 'var(--text-secondary)' }}>
+              {activeBucket.baseUrl}
+            </span>
+          )}
+        </div>
+      )}
 
       <div className="toolbar__controls">
         <button

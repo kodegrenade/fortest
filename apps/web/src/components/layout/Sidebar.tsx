@@ -1,87 +1,266 @@
+import { useState } from 'react';
 import { useSidebarStore } from '@/stores/sidebarStore';
+import { useBucketStore } from '@/stores/bucketStore';
 import {
-  FolderIcon,
-  ClockIcon,
-  SlidersIcon,
+  PlusIcon,
+  LayersIcon,
+  EditIcon,
+  TrashIcon,
   ChevronLeftIcon,
   ChevronRightIcon,
 } from '@/components/common/Icons';
+import { PromptDialog } from '@/components/common/PromptDialog';
+import { ConfirmDialog } from '@/components/common/ConfirmDialog';
+import { useToastStore } from '@/stores/toastStore';
+import '../buckets/Buckets.css';
 
-type SidebarSection = 'collections' | 'history' | 'environments';
-
-const SECTIONS: { id: SidebarSection; label: string; Icon: typeof FolderIcon }[] = [
-  { id: 'collections', label: 'Collections', Icon: FolderIcon },
-  { id: 'history', label: 'History', Icon: ClockIcon },
-  { id: 'environments', label: 'Environments', Icon: SlidersIcon },
-];
-
-const PLACEHOLDER_TEXT: Record<SidebarSection, string> = {
-  collections: 'Your API collections will appear here. Create a new collection to get started.',
-  history: 'Recent requests will be logged here as you make API calls.',
-  environments: 'Manage variables and environment configurations for your requests.',
-};
+const HomeIcon = ({ size = 16 }: { size?: number }) => (
+  <svg
+    width={size}
+    height={size}
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth={2}
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    style={{ flexShrink: 0 }}
+  >
+    <path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
+    <polyline points="9 22 9 12 15 12 15 22" />
+  </svg>
+);
 
 export function Sidebar() {
-  const activeSection = useSidebarStore((s) => s.activeSection);
   const isCollapsed = useSidebarStore((s) => s.isCollapsed);
-  const setActiveSection = useSidebarStore((s) => s.setActiveSection);
   const toggleCollapse = useSidebarStore((s) => s.toggleCollapse);
+
+  const {
+    buckets,
+    activeBucketId,
+    activeGroupId,
+    setActiveBucket,
+    setActiveGroup,
+    addActionGroup,
+    updateActionGroup,
+    deleteActionGroup,
+  } = useBucketStore();
+  const { addToast } = useToastStore();
+
+  const activeBucket = buckets.find((b) => b.id === activeBucketId);
+
+  // Dialog state for action group management
+  const [dialogState, setDialogState] = useState<{
+    type: 'createGroup' | 'renameGroup' | 'deleteGroup' | null;
+    groupId?: string;
+    initialValue?: string;
+  }>({ type: null });
+
+  if (!activeBucket) return null;
+
+  const handleCreateGroupConfirm = async (name: string) => {
+    try {
+      await addActionGroup(activeBucket.id, name);
+      addToast(`Action group "${name}" created successfully`, 'success');
+    } catch (err: any) {
+      addToast(err.message || 'Failed to create action group', 'error');
+    }
+    setDialogState({ type: null });
+  };
+
+  const handleRenameGroupConfirm = async (name: string) => {
+    if (dialogState.groupId) {
+      try {
+        await updateActionGroup(activeBucket.id, dialogState.groupId, { name });
+        addToast(`Action group renamed to "${name}"`, 'success');
+      } catch (err: any) {
+        addToast(err.message || 'Failed to rename action group', 'error');
+      }
+    }
+    setDialogState({ type: null });
+  };
+
+  const handleDeleteGroupConfirm = async () => {
+    if (dialogState.groupId) {
+      try {
+        await deleteActionGroup(activeBucket.id, dialogState.groupId);
+        addToast('Action group deleted successfully', 'success');
+      } catch (err: any) {
+        addToast(err.message || 'Failed to delete action group', 'error');
+      }
+    }
+    setDialogState({ type: null });
+  };
 
   const sidebarClass = `sidebar${isCollapsed ? ' sidebar--collapsed' : ''}`;
 
   return (
-    <aside className={sidebarClass}>
-      <nav className="sidebar__nav">
-        {SECTIONS.map(({ id, label, Icon }) => {
-          const isActive = activeSection === id;
-          const btnClass = `sidebar__nav-btn${isActive ? ' sidebar__nav-btn--active' : ''}`;
-
-          return (
-            <button
-              key={id}
-              className={btnClass}
-              onClick={() => setActiveSection(id)}
-              title={isCollapsed ? label : undefined}
-              aria-label={label}
-              aria-pressed={isActive}
-            >
-              <span className="sidebar__nav-btn-icon">
-                <Icon size={18} />
-              </span>
-              <span className="sidebar__nav-btn-label">{label}</span>
-            </button>
-          );
-        })}
-      </nav>
-
-      <div className="sidebar__content">
-        <div className="sidebar__section">
-          <div className="sidebar__section-header">
-            {activeSection}
-          </div>
-          <div className="sidebar__placeholder">
-            <span className="sidebar__placeholder-icon">
-              {SECTIONS.find((s) => s.id === activeSection)?.Icon &&
-                (() => {
-                  const ActiveIcon = SECTIONS.find((s) => s.id === activeSection)!.Icon;
-                  return <ActiveIcon size={32} />;
-                })()}
-            </span>
-            <span>{PLACEHOLDER_TEXT[activeSection]}</span>
-          </div>
-        </div>
-      </div>
-
-      <div className="sidebar__footer">
+    <>
+      <aside className={sidebarClass}>
+        {/* All Buckets Button */}
         <button
-          className="sidebar__collapse-btn"
-          onClick={toggleCollapse}
-          title={isCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-          aria-label={isCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+          className="sidebar__home-btn"
+          onClick={() => setActiveBucket(null)}
+          title="Back to Dashboard Hub"
+          style={isCollapsed ? { width: '32px', height: '32px', padding: 0, justifyContent: 'center' } : {}}
         >
-          {isCollapsed ? <ChevronRightIcon size={16} /> : <ChevronLeftIcon size={16} />}
+          <HomeIcon size={16} />
+          {!isCollapsed && <span>Dashboard Hub</span>}
         </button>
-      </div>
-    </aside>
+
+        {!isCollapsed && (
+          <>
+            <div className="sidebar__active-bucket-title" title={activeBucket.name}>
+              {activeBucket.name}
+            </div>
+            
+            <div className="sidebar__header" style={{ borderBottom: 'none', paddingBottom: 0 }}>
+              <span className="sidebar__header-title" style={{ fontSize: '10px' }}>Action Groups</span>
+              <button
+                className="btn btn--icon"
+                title="New Action Group"
+                onClick={() => setDialogState({ type: 'createGroup' })}
+              >
+                <PlusIcon size={14} />
+              </button>
+            </div>
+          </>
+        )}
+
+        <div className="sidebar__content" style={{ marginTop: '8px' }}>
+          {isCollapsed ? (
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px' }}>
+              <button
+                className="btn btn--icon"
+                title="New Action Group"
+                onClick={() => setDialogState({ type: 'createGroup' })}
+              >
+                <PlusIcon size={16} />
+              </button>
+              <div style={{ width: '100%', borderBottom: '1px solid var(--border-secondary)', margin: '8px 0' }} />
+              {activeBucket.actionGroups.map((group) => {
+                const isActive = group.id === activeGroupId;
+                return (
+                  <button
+                    key={group.id}
+                    className={`btn btn--icon ${isActive ? 'sidebar__nav-btn--active' : ''}`}
+                    title={`${group.name} (${group.steps?.length || 0} steps)`}
+                    onClick={() => {
+                      setActiveGroup(group.id);
+                    }}
+                  >
+                    <LayersIcon size={18} />
+                  </button>
+                );
+              })}
+            </div>
+          ) : activeBucket.actionGroups.length === 0 ? (
+            <div style={{ padding: '16px', textAlign: 'center', color: 'var(--text-tertiary)', fontSize: '12px' }}>
+              No Action Groups. Click "+" to create one.
+            </div>
+          ) : (
+            <div className="bucket-node__groups" style={{ borderLeft: 'none', marginLeft: 0, paddingLeft: 0 }}>
+              {activeBucket.actionGroups
+                .sort((a, b) => a.order - b.order)
+                .map((group) => {
+                  const isGroupActive = activeGroupId === group.id;
+                  return (
+                    <div key={group.id} className="group-node" style={{ padding: '0 8px' }}>
+                      <div
+                        className={`group-node__row ${isGroupActive ? 'group-node__row--active' : ''}`}
+                        onClick={() => {
+                          setActiveGroup(group.id);
+                        }}
+                        style={{ margin: 0 }}
+                      >
+                        <div className="group-node__info">
+                          <LayersIcon size={12} style={{ flexShrink: 0, color: 'var(--text-secondary)' }} />
+                          <span className="group-node__name">{group.name}</span>
+                          <span className="group-node__badge">{group.steps?.length || 0}</span>
+                        </div>
+
+                        <div className="group-node__actions" onClick={(e) => e.stopPropagation()}>
+                          <button
+                            className="group-node__action-btn"
+                            title="Rename Group"
+                            onClick={() =>
+                              setDialogState({
+                                type: 'renameGroup',
+                                groupId: group.id,
+                                initialValue: group.name,
+                              })
+                            }
+                          >
+                            <EditIcon size={12} />
+                          </button>
+                          <button
+                            className="group-node__action-btn group-node__action-btn--delete"
+                            title="Delete Group"
+                            onClick={() =>
+                              setDialogState({
+                                type: 'deleteGroup',
+                                groupId: group.id,
+                              })
+                            }
+                          >
+                            <TrashIcon size={12} />
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+            </div>
+          )}
+        </div>
+
+        <div className="sidebar__footer">
+          <button
+            className="sidebar__collapse-btn"
+            onClick={toggleCollapse}
+            title={isCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+            aria-label={isCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+          >
+            {isCollapsed ? <ChevronRightIcon size={16} /> : <ChevronLeftIcon size={16} />}
+          </button>
+        </div>
+      </aside>
+
+      {/* Modals */}
+      {dialogState.type === 'createGroup' && (
+        <PromptDialog
+          isOpen={true}
+          title="Create Action Group"
+          placeholder="Group Name (e.g. User Login Flow)"
+          submitText="Create"
+          onConfirm={handleCreateGroupConfirm}
+          onCancel={() => setDialogState({ type: null })}
+        />
+      )}
+
+      {dialogState.type === 'renameGroup' && (
+        <PromptDialog
+          isOpen={true}
+          title="Rename Action Group"
+          placeholder="Group Name"
+          submitText="Save"
+          initialValue={dialogState.initialValue}
+          onConfirm={handleRenameGroupConfirm}
+          onCancel={() => setDialogState({ type: null })}
+        />
+      )}
+
+      {dialogState.type === 'deleteGroup' && (
+        <ConfirmDialog
+          isOpen={true}
+          title="Delete Action Group"
+          message="Are you sure you want to delete this action group? This will permanently delete all steps in this group."
+          confirmText="Delete"
+          isDanger={true}
+          onConfirm={handleDeleteGroupConfirm}
+          onCancel={() => setDialogState({ type: null })}
+        />
+      )}
+    </>
   );
 }

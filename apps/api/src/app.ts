@@ -5,6 +5,7 @@ import rateLimit from 'express-rate-limit';
 import type { ApiError } from '@fortest/types';
 import proxyRouter from './routes/proxy';
 import healthRouter from './routes/health';
+import bucketsRouter from './routes/buckets';
 
 const app: express.Application = express();
 
@@ -40,6 +41,7 @@ app.use(
 
 app.use('/api/proxy', proxyRouter);
 app.use('/api/health', healthRouter);
+app.use('/api/buckets', bucketsRouter);
 
 // --- Global Error Handler ---
 // Express 5 forwards async rejections here automatically

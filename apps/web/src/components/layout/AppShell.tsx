@@ -1,11 +1,25 @@
 import { useSidebarStore } from '@/stores/sidebarStore';
+import { useBucketStore } from '@/stores/bucketStore';
 import { Toolbar } from './Toolbar';
 import { Sidebar } from './Sidebar';
-import { TabBar } from './TabBar';
-import { SplitPane } from './SplitPane';
+import { BucketDetail } from '../buckets/BucketDetail';
+import { ActionGroupPanel } from '../buckets/ActionGroupPanel';
+import { DashboardHub } from '../dashboard/DashboardHub';
 
 export function AppShell() {
   const isCollapsed = useSidebarStore((s) => s.isCollapsed);
+  const { activeBucketId, activeGroupId } = useBucketStore();
+
+  if (activeBucketId === null) {
+    return (
+      <div className="app-shell">
+        <Toolbar />
+        <main style={{ marginTop: 'var(--toolbar-height)', height: 'calc(100vh - var(--toolbar-height))', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+          <DashboardHub />
+        </main>
+      </div>
+    );
+  }
 
   const mainClass = `main-content${isCollapsed ? ' main-content--sidebar-collapsed' : ''}`;
 
@@ -14,10 +28,13 @@ export function AppShell() {
       <Toolbar />
       <Sidebar />
 
-      <div className={mainClass}>
-        <TabBar />
-        <SplitPane />
-      </div>
+      <main className={mainClass}>
+        {activeGroupId === null ? (
+          <BucketDetail />
+        ) : (
+          <ActionGroupPanel />
+        )}
+      </main>
     </div>
   );
 }

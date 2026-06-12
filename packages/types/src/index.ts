@@ -1,4 +1,4 @@
-// Core request/response
+// Core request primitives (reused by bucket steps)
 export {
   HttpMethodSchema,
   KeyValuePairSchema,
@@ -6,8 +6,6 @@ export {
   RequestBodySchema,
   AuthTypeSchema,
   AuthConfigSchema,
-  ForTestRequestSchema,
-  ForTestResponseSchema,
 } from './request';
 export type {
   HttpMethod,
@@ -16,25 +14,55 @@ export type {
   RequestBody,
   AuthType,
   AuthConfig,
-  ForTestRequest,
-  ForTestResponse,
 } from './request';
 
-// Collections
-export { FolderSchema, CollectionSchema } from './collection';
-export type { Folder, Collection } from './collection';
-
-// Environments
+// Test Buckets, Action Groups, Steps
 export {
-  VariableTypeSchema,
-  EnvironmentVariableSchema,
-  EnvironmentSchema,
-} from './environment';
-export type { VariableType, EnvironmentVariable, Environment } from './environment';
+  ExtractionSourceSchema,
+  ExtractionRuleSchema,
+  AssertionOperatorSchema,
+  AssertionTargetSchema,
+  AssertionSchema,
+  StepSchema,
+  DataStoreSchema,
+  ActionGroupSchema,
+  BucketVariableSchema,
+  TestBucketSchema,
+} from './bucket';
+export type {
+  ExtractionSource,
+  ExtractionRule,
+  AssertionOperator,
+  AssertionTarget,
+  Assertion,
+  Step,
+  DataStore,
+  ActionGroup,
+  BucketVariable,
+  TestBucket,
+} from './bucket';
 
-// History
-export { HistoryEntrySchema } from './history';
-export type { HistoryEntry } from './history';
+// Execution runs, results, events
+export {
+  ExecutionModeSchema,
+  ExecutionConfigSchema,
+  AssertionResultSchema,
+  StepResultSchema,
+  AggregateMetricsSchema,
+  ExecutionStatusSchema,
+  ExecutionRunSchema,
+  ExecutionEventSchema,
+} from './execution';
+export type {
+  ExecutionMode,
+  ExecutionConfig,
+  AssertionResult,
+  StepResult,
+  AggregateMetrics,
+  ExecutionStatus,
+  ExecutionRun,
+  ExecutionEvent,
+} from './execution';
 
 // API contracts
 export {

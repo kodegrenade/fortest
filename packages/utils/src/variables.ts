@@ -1,4 +1,4 @@
-import type { EnvironmentVariable } from '@fortest/types';
+import type { BucketVariable } from '@fortest/types';
 
 /**
  * Resolve {{variable}} placeholders in a string using environment variables.
@@ -6,7 +6,7 @@ import type { EnvironmentVariable } from '@fortest/types';
  */
 export function interpolate(
   template: string,
-  variables: EnvironmentVariable[],
+  variables: BucketVariable[],
 ): { resolved: string; unresolvedKeys: string[] } {
   const unresolvedKeys: string[] = [];
   const enabledVars = new Map(
