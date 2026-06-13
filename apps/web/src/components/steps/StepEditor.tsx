@@ -12,6 +12,103 @@ interface StepEditorProps {
 
 type TabType = 'headers' | 'params' | 'body' | 'auth' | 'extractions' | 'assertions';
 
+const POPULAR_HEADERS = [
+  'Accept',
+  'Accept-Encoding',
+  'Accept-Language',
+  'Authorization',
+  'Cache-Control',
+  'Connection',
+  'Content-Length',
+  'Content-Type',
+  'Cookie',
+  'Host',
+  'Origin',
+  'Pragma',
+  'Referer',
+  'User-Agent',
+  'X-API-Key',
+  'X-CSRF-Token',
+  'X-Requested-With',
+];
+
+const POPULAR_HEADER_VALUES = [
+  'application/json',
+  'application/x-www-form-urlencoded',
+  'multipart/form-data',
+  'text/plain',
+  'text/html',
+  'application/xml',
+  'Bearer ',
+  'no-cache',
+  'no-store',
+  'keep-alive',
+  'UTF-8',
+];
+
+function parseBodyContentToKeyValues(type: 'form-data' | 'x-www-form-urlencoded', content: string): KeyValuePair[] {
+  if (!content) return [];
+  if (type === 'form-data') {
+    try {
+      const parsed = JSON.parse(content);
+      if (Array.isArray(parsed)) {
+        return parsed.map((item: any) => ({
+          id: item.id || crypto.randomUUID(),
+          key: item.key || '',
+          value: item.value || '',
+          enabled: item.enabled !== undefined ? item.enabled : true,
+        }));
+      }
+    } catch {
+      // Fallback if content was raw text before
+    }
+  }
+
+  // Fallback or x-www-form-urlencoded parsing (query string style)
+  const pairs: KeyValuePair[] = [];
+  const parts = content.split('&');
+  for (const part of parts) {
+    if (!part) continue;
+    const eqIdx = part.indexOf('=');
+    if (eqIdx === -1) {
+      pairs.push({ id: crypto.randomUUID(), key: decodeURIComponent(part), value: '', enabled: true });
+    } else {
+      pairs.push({
+        id: crypto.randomUUID(),
+        key: decodeURIComponent(part.substring(0, eqIdx)),
+        value: decodeURIComponent(part.substring(eqIdx + 1)),
+        enabled: true,
+      });
+    }
+  }
+  return pairs;
+}
+
+function serializeKeyValuesToBodyContent(type: 'form-data' | 'x-www-form-urlencoded', pairs: KeyValuePair[]): string {
+  if (type === 'form-data') {
+    return JSON.stringify(pairs);
+  }
+  return pairs
+    .filter((p) => p.enabled && p.key.trim() !== '')
+    .map((p) => `${encodeURIComponent(p.key)}=${encodeURIComponent(p.value)}`)
+    .join('&');
+}
+
+function validateXml(content: string): string | null {
+  if (!content.trim()) return null;
+  try {
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(content, 'application/xml');
+    const parserError = doc.querySelector('parsererror');
+    if (parserError) {
+      return parserError.textContent || 'XML parsing error';
+    }
+    return null;
+  } catch (err: any) {
+    return err.message || 'XML parsing error';
+  }
+}
+
 export function StepEditor({ bucketId, groupId, stepId }: StepEditorProps) {
   const { buckets, updateStep } = useBucketStore();
   const bucket = buckets.find((b) => b.id === bucketId);
@@ -28,6 +125,7 @@ export function StepEditor({ bucketId, groupId, stepId }: StepEditorProps) {
   const [headers, setHeaders] = useState<KeyValuePair[]>([]);
   const [params, setParams] = useState<KeyValuePair[]>([]);
   const [body, setBody] = useState<RequestBody>({ type: 'none', content: '' });
+  const [bodyKeyValues, setBodyKeyValues] = useState<KeyValuePair[]>([]);
   const [auth, setAuth] = useState<AuthConfig>({ type: 'none' });
   const [extractions, setExtractions] = useState<ExtractionRule[]>([]);
   const [assertions, setAssertions] = useState<Assertion[]>([]);
@@ -40,7 +138,13 @@ export function StepEditor({ bucketId, groupId, stepId }: StepEditorProps) {
       setPath(step.path);
       setHeaders(step.headers || []);
       setParams(step.params || []);
-      setBody(step.body || { type: 'none', content: '' });
+      const stepBody = step.body || { type: 'none', content: '' };
+      setBody(stepBody);
+      if (stepBody.type === 'form-data' || stepBody.type === 'x-www-form-urlencoded') {
+        setBodyKeyValues(parseBodyContentToKeyValues(stepBody.type, stepBody.content));
+      } else {
+        setBodyKeyValues([]);
+      }
       setAuth(step.auth || { type: 'none' });
       setExtractions(step.extractions || []);
       setAssertions(step.assertions || []);
@@ -172,6 +276,59 @@ export function StepEditor({ bucketId, groupId, stepId }: StepEditorProps) {
     saveStepData({ assertions: updated });
   };
 
+  const getBodyValidationError = (): string | null => {
+    if (body.type === 'json' && body.content.trim()) {
+      try {
+        JSON.parse(body.content);
+        return null;
+      } catch (err: any) {
+        return err.message;
+      }
+    }
+    if (body.type === 'xml' && body.content.trim()) {
+      return validateXml(body.content);
+    }
+    return null;
+  };
+
+  const handleBeautifyJson = () => {
+    try {
+      const parsed = JSON.parse(body.content);
+      const formatted = JSON.stringify(parsed, null, 2);
+      const nextBody = { ...body, content: formatted };
+      setBody(nextBody);
+      saveStepData({ body: nextBody });
+    } catch {
+      // Do nothing if invalid
+    }
+  };
+
+  const handleAddBodyKeyValue = () => {
+    const updated = [...bodyKeyValues, { id: crypto.randomUUID(), key: '', value: '', enabled: true }];
+    setBodyKeyValues(updated);
+    const serialized = serializeKeyValuesToBodyContent(body.type as any, updated);
+    const nextBody = { ...body, content: serialized };
+    setBody(nextBody);
+    saveStepData({ body: nextBody });
+  };
+
+  const handleBodyKeyValueChange = (id: string, field: keyof KeyValuePair, val: any) => {
+    const updated = bodyKeyValues.map((kv) => (kv.id === id ? { ...kv, [field]: val } : kv));
+    setBodyKeyValues(updated);
+    const serialized = serializeKeyValuesToBodyContent(body.type as any, updated);
+    const nextBody = { ...body, content: serialized };
+    setBody(nextBody);
+  };
+
+  const handleRemoveBodyKeyValue = (id: string) => {
+    const updated = bodyKeyValues.filter((kv) => kv.id !== id);
+    setBodyKeyValues(updated);
+    const serialized = serializeKeyValuesToBodyContent(body.type as any, updated);
+    const nextBody = { ...body, content: serialized };
+    setBody(nextBody);
+    saveStepData({ body: nextBody });
+  };
+
   // Full URL display helper
   const fullUrl = `${bucket.baseUrl || ''}${path.startsWith('/') ? path : '/' + path}`;
 
@@ -285,6 +442,7 @@ export function StepEditor({ bucketId, groupId, stepId }: StepEditorProps) {
                   type="text"
                   className="input"
                   placeholder="Header Name (e.g. Content-Type)"
+                  list="popular-headers"
                   value={header.key}
                   onChange={(e) => handleHeaderChange(header.id, 'key', e.target.value)}
                   onBlur={() => saveStepData({ headers })}
@@ -293,6 +451,7 @@ export function StepEditor({ bucketId, groupId, stepId }: StepEditorProps) {
                   type="text"
                   className="input"
                   placeholder="Value"
+                  list="popular-header-values"
                   value={header.value}
                   onChange={(e) => handleHeaderChange(header.id, 'value', e.target.value)}
                   onBlur={() => saveStepData({ headers })}
@@ -307,6 +466,16 @@ export function StepEditor({ bucketId, groupId, stepId }: StepEditorProps) {
                 No headers defined for this step.
               </div>
             )}
+            <datalist id="popular-headers">
+              {POPULAR_HEADERS.map((h) => (
+                <option key={h} value={h} />
+              ))}
+            </datalist>
+            <datalist id="popular-header-values">
+              {POPULAR_HEADER_VALUES.map((v) => (
+                <option key={v} value={v} />
+              ))}
+            </datalist>
           </div>
         )}
 
@@ -362,12 +531,21 @@ export function StepEditor({ bucketId, groupId, stepId }: StepEditorProps) {
         {/* Body Tab */}
         {activeTab === 'body' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-            <div style={{ width: '200px' }}>
+            <div style={{ width: '220px' }}>
               <select
                 className="input"
                 value={body.type}
                 onChange={(e) => {
-                  const next = { ...body, type: e.target.value as any };
+                  const newType = e.target.value as any;
+                  let newContent = body.content;
+                  if (newType === 'form-data' || newType === 'x-www-form-urlencoded') {
+                    const currentPairs = parseBodyContentToKeyValues(newType, body.content);
+                    newContent = serializeKeyValuesToBodyContent(newType, currentPairs);
+                    setBodyKeyValues(currentPairs);
+                  } else {
+                    setBodyKeyValues([]);
+                  }
+                  const next = { type: newType, content: newContent };
                   setBody(next);
                   saveStepData({ body: next });
                 }}
@@ -381,15 +559,116 @@ export function StepEditor({ bucketId, groupId, stepId }: StepEditorProps) {
               </select>
             </div>
 
-            {body.type !== 'none' && (
-              <textarea
-                className="input"
-                style={{ fontFamily: 'var(--font-mono)', minHeight: '200px', fontSize: '12px', resize: 'vertical', lineHeight: '1.5' }}
-                placeholder={body.type === 'json' ? '{\n  "key": "value"\n}' : 'Body Content'}
-                value={body.content}
-                onChange={(e) => setBody({ ...body, content: e.target.value })}
-                onBlur={() => saveStepData({ body })}
-              />
+            {/* Textarea for raw/JSON/XML types */}
+            {(body.type === 'json' || body.type === 'xml' || body.type === 'raw') && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                <textarea
+                  className="input"
+                  style={{
+                    fontFamily: 'var(--font-mono)',
+                    minHeight: '200px',
+                    fontSize: '12px',
+                    resize: 'vertical',
+                    lineHeight: '1.5',
+                    borderColor: getBodyValidationError() ? 'var(--status-5xx)' : undefined,
+                  }}
+                  placeholder={
+                    body.type === 'json'
+                      ? '{\n  "key": "value"\n}'
+                      : body.type === 'xml'
+                      ? '<root>\n  <key>value</key>\n</root>'
+                      : 'Body Content'
+                  }
+                  value={body.content}
+                  onChange={(e) => setBody({ ...body, content: e.target.value })}
+                  onBlur={() => saveStepData({ body })}
+                />
+                
+                {/* Validation & Beautify Bar */}
+                {body.content.trim() && (
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: '11px', padding: '4px 8px', borderRadius: 'var(--radius-sm)', backgroundColor: 'var(--bg-secondary)', border: '1px solid var(--border-primary)' }}>
+                    <div>
+                      {getBodyValidationError() ? (
+                        <span style={{ color: 'var(--status-5xx)', fontWeight: 500 }}>
+                          ✕ Invalid {body.type.toUpperCase()}: {getBodyValidationError()}
+                        </span>
+                      ) : (
+                        <span style={{ color: 'var(--status-2xx)', fontWeight: 500 }}>
+                          ✓ Valid {body.type.toUpperCase()}
+                        </span>
+                      )}
+                    </div>
+                    {body.type === 'json' && !getBodyValidationError() && (
+                      <button
+                        type="button"
+                        className="btn btn--ghost"
+                        style={{ fontSize: '10px', padding: '2px 6px' }}
+                        onClick={handleBeautifyJson}
+                      >
+                        Beautify / Format
+                      </button>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Key-Value editor for form-data and URL encoded */}
+            {(body.type === 'form-data' || body.type === 'x-www-form-urlencoded') && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '4px' }}>
+                  <button
+                    className="btn btn--ghost"
+                    style={{ fontSize: '11px', padding: '4px 8px', display: 'flex', alignItems: 'center', gap: '4px' }}
+                    onClick={handleAddBodyKeyValue}
+                  >
+                    <PlusIcon size={12} /> Add Key-Value Row
+                  </button>
+                </div>
+                
+                {bodyKeyValues.map((kv) => (
+                  <div key={kv.id} className="key-value-row">
+                    <input
+                      type="checkbox"
+                      className="key-value-row__checkbox"
+                      checked={kv.enabled}
+                      onChange={(e) => {
+                        const updated = bodyKeyValues.map((item) => (item.id === kv.id ? { ...item, enabled: e.target.checked } : item));
+                        setBodyKeyValues(updated);
+                        const serialized = serializeKeyValuesToBodyContent(body.type as any, updated);
+                        const nextBody = { ...body, content: serialized };
+                        setBody(nextBody);
+                        saveStepData({ body: nextBody });
+                      }}
+                    />
+                    <input
+                      type="text"
+                      className="input"
+                      placeholder="Key"
+                      value={kv.key}
+                      onChange={(e) => handleBodyKeyValueChange(kv.id, 'key', e.target.value)}
+                      onBlur={() => saveStepData({ body })}
+                    />
+                    <input
+                      type="text"
+                      className="input"
+                      placeholder="Value"
+                      value={kv.value}
+                      onChange={(e) => handleBodyKeyValueChange(kv.id, 'value', e.target.value)}
+                      onBlur={() => saveStepData({ body })}
+                    />
+                    <button className="btn btn--icon" onClick={() => handleRemoveBodyKeyValue(kv.id)}>
+                      <TrashIcon size={14} />
+                    </button>
+                  </div>
+                ))}
+
+                {bodyKeyValues.length === 0 && (
+                  <div style={{ textAlign: 'center', color: 'var(--text-tertiary)', padding: '24px' }}>
+                    No form parameters defined.
+                  </div>
+                )}
+              </div>
             )}
           </div>
         )}

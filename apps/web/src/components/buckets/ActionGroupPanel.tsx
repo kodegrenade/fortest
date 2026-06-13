@@ -1,11 +1,13 @@
 import { useState, useEffect } from 'react';
 import { useBucketStore } from '@/stores/bucketStore';
 import { StepEditor } from '../steps/StepEditor';
-import { PlusIcon, TrashIcon, LayersIcon, ChevronLeftIcon } from '@/components/common/Icons';
+import { PlusIcon, TrashIcon, LayersIcon, ChevronLeftIcon, PlayIcon } from '@/components/common/Icons';
 import { PromptDialog } from '@/components/common/PromptDialog';
 import { ConfirmDialog } from '@/components/common/ConfirmDialog';
 import { EmptyState } from '@/components/common/EmptyState';
 import { useToastStore } from '@/stores/toastStore';
+import { useExecutionStore } from '@/stores/executionStore';
+import { RunDashboard } from '../dashboard/RunDashboard';
 import '../steps/Steps.css';
 
 export function ActionGroupPanel() {
@@ -20,6 +22,7 @@ export function ActionGroupPanel() {
     deleteStep,
   } = useBucketStore();
   const { addToast } = useToastStore();
+  const { activeRun, startRun } = useExecutionStore();
 
   const bucket = buckets.find((b) => b.id === activeBucketId);
   const group = bucket?.actionGroups.find((g) => g.id === activeGroupId);
@@ -66,6 +69,23 @@ export function ActionGroupPanel() {
     setDialogState({ type: null });
   };
 
+  const handleRunFlow = async () => {
+    try {
+      await startRun(bucket.id, group.id);
+      addToast('Execution run initiated successfully', 'success');
+    } catch (err: any) {
+      addToast(err.message || 'Failed to start execution run', 'error');
+    }
+  };
+
+  if (activeRun) {
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', height: '100%', padding: '24px', overflow: 'hidden', backgroundColor: 'var(--bg-primary)' }}>
+        <RunDashboard />
+      </div>
+    );
+  }
+
   const sortedSteps = [...group.steps].sort((a, b) => a.order - b.order);
 
   return (
@@ -81,10 +101,22 @@ export function ActionGroupPanel() {
           >
             <ChevronLeftIcon size={16} />
           </button>
-          <div className="step-timeline-title">
-            <LayersIcon size={16} style={{ color: 'var(--accent-primary)' }} />
-            <span>{group.name}</span>
+          <div className="step-timeline-title" style={{ flex: 1, minWidth: 0 }}>
+            <LayersIcon size={16} style={{ color: 'var(--accent-primary)', flexShrink: 0 }} />
+            <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{group.name}</span>
           </div>
+          
+          {sortedSteps.length > 0 && (
+            <button
+              className="btn btn--icon"
+              title="Run Action Group"
+              style={{ color: 'var(--method-get)', marginRight: '6px' }}
+              onClick={handleRunFlow}
+            >
+              <PlayIcon size={16} />
+            </button>
+          )}
+
           <button
             className="btn btn--icon"
             title="Add Test Step"

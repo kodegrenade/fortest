@@ -38,6 +38,10 @@ function isBlockedIp(ip: string): boolean {
 }
 
 export async function validateTargetUrl(url: string): Promise<boolean> {
+  if (process.env.ALLOW_PRIVATE_IPS === 'true') {
+    return true;
+  }
+
   let parsed: URL;
   try {
     parsed = new URL(url);

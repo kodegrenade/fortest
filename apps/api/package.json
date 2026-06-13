@@ -12,18 +12,20 @@
   "dependencies": {
     "@fortest/types": "workspace:*",
     "@fortest/utils": "workspace:*",
-    "express": "^5.1.0",
     "cors": "^2.8.5",
-    "helmet": "^8.1.0",
+    "express": "^5.1.0",
     "express-rate-limit": "^7.5.0",
+    "helmet": "^8.1.0",
     "redis": "^4.7.0",
-    "zod": "^3.24.0",
-    "uuid": "^11.1.0"
+    "uuid": "^11.1.0",
+    "ws": "^8.21.0",
+    "zod": "^3.24.0"
   },
   "devDependencies": {
-    "@types/express": "^5.0.0",
     "@types/cors": "^2.8.17",
+    "@types/express": "^5.0.0",
     "@types/uuid": "^10.0.0",
+    "@types/ws": "^8.18.1",
     "tsx": "^4.19.0",
     "typescript": "^5.8.0"
   }
