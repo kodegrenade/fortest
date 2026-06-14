@@ -787,6 +787,142 @@
   cursor: not-allowed;
 }
 
+/* --- Dashboard Hub List View --- */
+.dashboard-hub__list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 4px 0;
+}
+
+.bucket-list-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background-color: var(--bg-secondary);
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-md);
+  padding: 12px 20px;
+  cursor: pointer;
+  transition: border-color var(--transition-fast), transform var(--transition-fast), box-shadow var(--transition-fast);
+}
+
+.bucket-list-item:hover {
+  border-color: var(--accent-primary);
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-sm);
+}
+
+.bucket-list-item__left {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  min-width: 0;
+  flex: 1;
+}
+
+.bucket-list-item__title-group {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  min-width: 0;
+  flex: 1;
+}
+
+.bucket-list-item__title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.bucket-list-item__url {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.bucket-list-item__url-empty {
+  font-size: 11px;
+  color: var(--text-tertiary);
+  font-style: italic;
+}
+
+.bucket-list-item__right {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+}
+
+.bucket-list-item__meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.bucket-list-item__badge {
+  background-color: var(--bg-tertiary);
+  border: 1px solid var(--border-primary);
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 500;
+  padding: 2px 8px;
+  border-radius: 12px;
+}
+
+.bucket-list-item__actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  opacity: 0;
+  transition: opacity var(--transition-fast);
+}
+
+.bucket-list-item:hover .bucket-list-item__actions {
+  opacity: 1;
+}
+
+/* --- View Switcher --- */
+.dashboard-hub__view-switcher {
+  display: flex;
+  background-color: var(--bg-secondary);
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-md);
+  padding: 4px;
+  gap: 4px;
+  align-items: center;
+}
+
+.dashboard-hub__view-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius-sm);
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all var(--transition-fast) ease;
+}
+
+.dashboard-hub__view-btn:hover {
+  color: var(--text-primary);
+  background-color: var(--bg-hover);
+}
+
+.dashboard-hub__view-btn--active {
+  color: #ffffff !important;
+  background-color: var(--accent-primary) !important;
+}
+
+
 
 
 

@@ -8,6 +8,8 @@ import {
   InboxIcon,
   SaveIcon,
   XIcon,
+  GridIcon,
+  ListIcon,
 } from '@/components/common/Icons';
 import { PromptDialog } from '@/components/common/PromptDialog';
 import { ConfirmDialog } from '@/components/common/ConfirmDialog';
@@ -152,6 +154,15 @@ export function DashboardHub() {
   const [isDragging, setIsDragging] = useState(false);
   const [isImporting, setIsImporting] = useState(false);
   const [templateTab, setTemplateTab] = useState<'json' | 'yaml'>('json');
+  const [viewMode, setViewMode] = useState<'grid' | 'list'>(() => {
+    const saved = localStorage.getItem('dashboard-view');
+    return saved === 'list' ? 'list' : 'grid';
+  });
+
+  const handleToggleView = (mode: 'grid' | 'list') => {
+    setViewMode(mode);
+    localStorage.setItem('dashboard-view', mode);
+  };
 
   useEffect(() => {
     if (dialogState.type !== null) {
@@ -303,13 +314,38 @@ export function DashboardHub() {
     <div className="dashboard-hub">
       {/* Header */}
       <div className="dashboard-hub__header">
-        <h1 className="dashboard-hub__title">API Test Orchestration Hub</h1>
-        <p className="dashboard-hub__subtitle">
-          Configure test buckets, chain HTTP requests in action flows, and watch performance metrics run in real-time.
-        </p>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+            <h1 className="dashboard-hub__title">API Test Orchestration Hub</h1>
+            <p className="dashboard-hub__subtitle">
+              Configure test buckets, chain HTTP requests in action flows, and watch performance metrics run in real-time.
+            </p>
+          </div>
+          
+          {buckets.length > 0 && (
+            <div className="dashboard-hub__view-switcher">
+              <button
+                type="button"
+                className={`dashboard-hub__view-btn ${viewMode === 'grid' ? 'dashboard-hub__view-btn--active' : ''}`}
+                onClick={() => handleToggleView('grid')}
+                title="Grid View"
+              >
+                <GridIcon size={16} />
+              </button>
+              <button
+                type="button"
+                className={`dashboard-hub__view-btn ${viewMode === 'list' ? 'dashboard-hub__view-btn--active' : ''}`}
+                onClick={() => handleToggleView('list')}
+                title="List View"
+              >
+                <ListIcon size={16} />
+              </button>
+            </div>
+          )}
+        </div>
       </div>
 
-      {/* Grid */}
+      {/* Content */}
       {isLoading && buckets.length === 0 ? (
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '200px', gap: '12px', color: 'var(--text-secondary)' }}>
           <div className="spinner"></div>
@@ -321,9 +357,9 @@ export function DashboardHub() {
           <h3>No Test Buckets Found</h3>
           <p>Click the floating action button in the bottom right corner to create or import a test bucket and begin configuration.</p>
         </div>
-      ) : (
+      ) : viewMode === 'grid' ? (
         <div className="dashboard-hub__grid">
-        {/* Bucket Cards */}
+        {/* Bucket Cards (Grid) */}
         {buckets.map((bucket) => {
           const groupCount = bucket.actionGroups?.length || 0;
           const totalSteps = bucket.actionGroups?.reduce((acc, curr) => acc + (curr.steps?.length || 0), 0) || 0;
@@ -359,6 +395,87 @@ export function DashboardHub() {
                 </div>
 
                 <div className="bucket-card__actions" onClick={(e) => e.stopPropagation()}>
+                  <button
+                    className="btn btn--icon"
+                    title="Export Bucket"
+                    onClick={() =>
+                      setDialogState({
+                        type: 'exportBucket',
+                        bucketId: bucket.id,
+                        bucketName: bucket.name,
+                      })
+                    }
+                  >
+                    <SaveIcon size={14} />
+                  </button>
+                  <button
+                    className="btn btn--icon"
+                    title="Rename Bucket"
+                    onClick={() =>
+                      setDialogState({
+                        type: 'renameBucket',
+                        bucketId: bucket.id,
+                        initialValue: bucket.name,
+                      })
+                    }
+                  >
+                    <EditIcon size={14} />
+                  </button>
+                  <button
+                    className="btn btn--icon"
+                    title="Delete Bucket"
+                    style={{ color: 'var(--method-delete)' }}
+                    onClick={() =>
+                      setDialogState({
+                        type: 'deleteBucket',
+                        bucketId: bucket.id,
+                      })
+                    }
+                  >
+                    <TrashIcon size={14} />
+                  </button>
+                </div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+      ) : (
+        <div className="dashboard-hub__list">
+        {/* Bucket List Items (List) */}
+        {buckets.map((bucket) => {
+          const groupCount = bucket.actionGroups?.length || 0;
+          const totalSteps = bucket.actionGroups?.reduce((acc, curr) => acc + (curr.steps?.length || 0), 0) || 0;
+
+          return (
+            <div
+              key={bucket.id}
+              className="bucket-list-item"
+              onClick={() => setActiveBucket(bucket.id)}
+            >
+              <div className="bucket-list-item__left">
+                <BucketIcon size={20} style={{ color: 'var(--accent-primary)', flexShrink: 0 }} />
+                <div className="bucket-list-item__title-group">
+                  <span className="bucket-list-item__title">{bucket.name}</span>
+                  {bucket.baseUrl ? (
+                    <span className="bucket-list-item__url">{bucket.baseUrl}</span>
+                  ) : (
+                    <span className="bucket-list-item__url-empty">No base URL configured</span>
+                  )}
+                </div>
+              </div>
+
+              <div className="bucket-list-item__right">
+                <div className="bucket-list-item__meta">
+                  <span className="bucket-list-item__badge">
+                    {groupCount} {groupCount === 1 ? 'Group' : 'Groups'}
+                  </span>
+                  <span className="bucket-list-item__badge">
+                    {totalSteps} {totalSteps === 1 ? 'Step' : 'Steps'}
+                  </span>
+                </div>
+
+                <div className="bucket-list-item__actions" onClick={(e) => e.stopPropagation()}>
                   <button
                     className="btn btn--icon"
                     title="Export Bucket"
