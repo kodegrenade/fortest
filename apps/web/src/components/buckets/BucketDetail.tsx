@@ -10,8 +10,8 @@ import {
   XIcon,
   SaveIcon,
 } from '@/components/common/Icons';
-import { PromptDialog } from '@/components/common/PromptDialog';
 import { ConfirmDialog } from '@/components/common/ConfirmDialog';
+import { ActionGroupDialog } from '@/components/common/ActionGroupDialog';
 import type { BucketVariable, AuthConfig } from '@fortest/types';
 import { useToastStore } from '@/stores/toastStore';
 
@@ -51,6 +51,7 @@ export function BucketDetail() {
     type: 'createGroup' | 'renameGroup' | 'deleteGroup' | null;
     groupId?: string;
     initialValue?: string;
+    initialDescription?: string;
   }>({ type: null });
 
   if (!bucket) return null;
@@ -97,9 +98,9 @@ export function BucketDetail() {
     setVariables(variables.filter((v) => v.id !== id));
   };
 
-  const handleCreateGroupConfirm = async (groupName: string) => {
+  const handleCreateGroupConfirm = async (groupName: string, description: string) => {
     try {
-      await addActionGroup(bucket.id, groupName);
+      await addActionGroup(bucket.id, groupName, description);
       addToast(`Action group "${groupName}" created successfully`, 'success');
     } catch (err: any) {
       addToast(err.message || 'Failed to create action group', 'error');
@@ -107,13 +108,13 @@ export function BucketDetail() {
     setDialogState({ type: null });
   };
 
-  const handleRenameGroupConfirm = async (groupName: string) => {
+  const handleRenameGroupConfirm = async (groupName: string, description: string) => {
     if (dialogState.groupId) {
       try {
-        await updateActionGroup(bucket.id, dialogState.groupId, { name: groupName });
-        addToast(`Action group renamed to "${groupName}"`, 'success');
+        await updateActionGroup(bucket.id, dialogState.groupId, { name: groupName, description });
+        addToast(`Action group updated successfully`, 'success');
       } catch (err: any) {
-        addToast(err.message || 'Failed to rename action group', 'error');
+        addToast(err.message || 'Failed to update action group', 'error');
       }
     }
     setDialogState({ type: null });
@@ -450,8 +451,13 @@ export function BucketDetail() {
                   >
                     <button
                       className="btn btn--icon"
-                      title="Rename"
-                      onClick={() => setDialogState({ type: 'renameGroup', groupId: group.id, initialValue: group.name })}
+                      title="Edit Group"
+                      onClick={() => setDialogState({
+                        type: 'renameGroup',
+                        groupId: group.id,
+                        initialValue: group.name,
+                        initialDescription: group.description
+                      })}
                     >
                       <EditIcon size={14} />
                     </button>
@@ -472,10 +478,9 @@ export function BucketDetail() {
 
       {/* Dialogs */}
       {dialogState.type === 'createGroup' && (
-        <PromptDialog
+        <ActionGroupDialog
           isOpen={true}
           title="Create Action Group"
-          placeholder="Group Name (e.g. User Signup Flow)"
           submitText="Create"
           onConfirm={handleCreateGroupConfirm}
           onCancel={() => setDialogState({ type: null })}
@@ -483,12 +488,12 @@ export function BucketDetail() {
       )}
 
       {dialogState.type === 'renameGroup' && (
-        <PromptDialog
+        <ActionGroupDialog
           isOpen={true}
-          title="Rename Action Group"
-          placeholder="Group Name"
+          title="Edit Action Group"
           submitText="Save"
-          initialValue={dialogState.initialValue}
+          initialName={dialogState.initialValue}
+          initialDescription={dialogState.initialDescription}
           onConfirm={handleRenameGroupConfirm}
           onCancel={() => setDialogState({ type: null })}
         />

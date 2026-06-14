@@ -27,7 +27,7 @@ interface BucketState {
   getActiveStep: () => Step | undefined;
 
   // Nested mutations
-  addActionGroup: (bucketId: string, name: string) => Promise<void>;
+  addActionGroup: (bucketId: string, name: string, description?: string) => Promise<void>;
   updateActionGroup: (bucketId: string, groupId: string, data: Partial<ActionGroup>) => Promise<void>;
   deleteActionGroup: (bucketId: string, groupId: string) => Promise<void>;
   addStep: (bucketId: string, groupId: string, name: string) => Promise<void>;
@@ -156,14 +156,14 @@ export const useBucketStore = create<BucketState>((set, get) => ({
     return group.steps.find((s) => s.id === get().activeStepId);
   },
 
-  addActionGroup: async (bucketId, name) => {
+  addActionGroup: async (bucketId, name, description = '') => {
     const bucket = get().buckets.find((b) => b.id === bucketId);
     if (!bucket) return;
 
     const newGroup: ActionGroup = {
       id: crypto.randomUUID(),
       name,
-      description: '',
+      description,
       order: bucket.actionGroups.length,
       steps: [],
       createdAt: new Date().toISOString(),

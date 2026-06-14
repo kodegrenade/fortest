@@ -189,18 +189,37 @@ export function ActionGroupPanel() {
           </button>
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0 }}>
             <LayersIcon size={16} style={{ color: 'var(--accent-primary)', flexShrink: 0 }} />
-            <span
-              style={{
-                fontSize: '14px',
-                fontWeight: 700,
-                color: 'var(--text-primary)',
-                whiteSpace: 'nowrap',
-                overflow: 'hidden',
-                textOverflow: 'ellipsis',
-              }}
-            >
-              {group.name}
-            </span>
+            <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+              <span
+                style={{
+                  fontSize: '14px',
+                  fontWeight: 700,
+                  color: 'var(--text-primary)',
+                  whiteSpace: 'nowrap',
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  lineHeight: '1.2',
+                }}
+              >
+                {group.name}
+              </span>
+              {group.description && (
+                <span
+                  style={{
+                    fontSize: '11px',
+                    color: 'var(--text-secondary)',
+                    whiteSpace: 'nowrap',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    marginTop: '2px',
+                    lineHeight: '1.2',
+                  }}
+                  title={group.description}
+                >
+                  {group.description}
+                </span>
+              )}
+            </div>
           </div>
         </div>
 

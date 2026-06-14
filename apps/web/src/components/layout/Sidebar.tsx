@@ -9,8 +9,8 @@ import {
   ChevronLeftIcon,
   ChevronRightIcon,
 } from '@/components/common/Icons';
-import { PromptDialog } from '@/components/common/PromptDialog';
 import { ConfirmDialog } from '@/components/common/ConfirmDialog';
+import { ActionGroupDialog } from '@/components/common/ActionGroupDialog';
 import { useToastStore } from '@/stores/toastStore';
 import '../buckets/Buckets.css';
 
@@ -54,13 +54,14 @@ export function Sidebar() {
     type: 'createGroup' | 'renameGroup' | 'deleteGroup' | null;
     groupId?: string;
     initialValue?: string;
+    initialDescription?: string;
   }>({ type: null });
 
   if (!activeBucket) return null;
 
-  const handleCreateGroupConfirm = async (name: string) => {
+  const handleCreateGroupConfirm = async (name: string, description: string) => {
     try {
-      await addActionGroup(activeBucket.id, name);
+      await addActionGroup(activeBucket.id, name, description);
       addToast(`Action group "${name}" created successfully`, 'success');
     } catch (err: any) {
       addToast(err.message || 'Failed to create action group', 'error');
@@ -68,13 +69,13 @@ export function Sidebar() {
     setDialogState({ type: null });
   };
 
-  const handleRenameGroupConfirm = async (name: string) => {
+  const handleRenameGroupConfirm = async (name: string, description: string) => {
     if (dialogState.groupId) {
       try {
-        await updateActionGroup(activeBucket.id, dialogState.groupId, { name });
-        addToast(`Action group renamed to "${name}"`, 'success');
+        await updateActionGroup(activeBucket.id, dialogState.groupId, { name, description });
+        addToast(`Action group updated successfully`, 'success');
       } catch (err: any) {
-        addToast(err.message || 'Failed to rename action group', 'error');
+        addToast(err.message || 'Failed to update action group', 'error');
       }
     }
     setDialogState({ type: null });
@@ -179,15 +180,16 @@ export function Sidebar() {
                           <span className="group-node__badge">{group.steps?.length || 0}</span>
                         </div>
 
-                        <div className="group-node__actions" onClick={(e) => e.stopPropagation()}>
+                         <div className="group-node__actions" onClick={(e) => e.stopPropagation()}>
                           <button
                             className="group-node__action-btn"
-                            title="Rename Group"
+                            title="Edit Group"
                             onClick={() =>
                               setDialogState({
                                 type: 'renameGroup',
                                 groupId: group.id,
                                 initialValue: group.name,
+                                initialDescription: group.description,
                               })
                             }
                           >
@@ -228,10 +230,9 @@ export function Sidebar() {
 
       {/* Modals */}
       {dialogState.type === 'createGroup' && (
-        <PromptDialog
+        <ActionGroupDialog
           isOpen={true}
           title="Create Action Group"
-          placeholder="Group Name (e.g. User Login Flow)"
           submitText="Create"
           onConfirm={handleCreateGroupConfirm}
           onCancel={() => setDialogState({ type: null })}
@@ -239,12 +240,12 @@ export function Sidebar() {
       )}
 
       {dialogState.type === 'renameGroup' && (
-        <PromptDialog
+        <ActionGroupDialog
           isOpen={true}
-          title="Rename Action Group"
-          placeholder="Group Name"
+          title="Edit Action Group"
           submitText="Save"
-          initialValue={dialogState.initialValue}
+          initialName={dialogState.initialValue}
+          initialDescription={dialogState.initialDescription}
           onConfirm={handleRenameGroupConfirm}
           onCancel={() => setDialogState({ type: null })}
         />
