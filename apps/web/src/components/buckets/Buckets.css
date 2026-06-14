@@ -648,5 +648,117 @@
   background-color: hsla(0, 70%, 58%, 0.15);
 }
 
+/* --- Split-Screen Import Modal --- */
+.import-modal {
+  max-width: 860px !important;
+  width: 100%;
+  padding: 0 !important;
+  overflow: hidden;
+}
+
+.import-modal__split {
+  display: flex;
+  min-height: 480px;
+}
+
+.import-modal__upload-panel {
+  flex: 1;
+  padding: 32px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  border-right: 1px solid var(--border-primary);
+}
+
+.import-modal__guide-panel {
+  width: 380px;
+  padding: 32px;
+  background-color: var(--bg-primary);
+  display: flex;
+  flex-direction: column;
+}
+
+.import-guide__title {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin: 0 0 8px 0;
+}
+
+.import-guide__tabs {
+  display: flex;
+  gap: 8px;
+  border-bottom: 1px solid var(--border-secondary);
+  margin-bottom: 12px;
+}
+
+.import-guide__tab {
+  background: transparent;
+  border: none;
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 600;
+  padding: 8px 12px;
+  cursor: pointer;
+  position: relative;
+  transition: color var(--transition-fast) ease;
+}
+
+.import-guide__tab:hover {
+  color: var(--text-primary);
+}
+
+.import-guide__tab--active {
+  color: var(--accent-primary);
+}
+
+.import-guide__tab--active::after {
+  content: '';
+  position: absolute;
+  bottom: -1px;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background-color: var(--accent-primary);
+}
+
+.import-guide__preview-container {
+  flex: 1;
+  background-color: var(--bg-secondary);
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-md);
+  padding: 12px;
+  overflow-y: auto;
+  max-height: 260px;
+}
+
+.import-guide__preview {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-secondary);
+  white-space: pre-wrap;
+  word-break: break-all;
+  text-align: left;
+}
+
+/* Responsive Stacking */
+@media (max-width: 768px) {
+  .import-modal {
+    max-width: 480px !important;
+  }
+  .import-modal__split {
+    flex-direction: column;
+  }
+  .import-modal__upload-panel {
+    border-right: none;
+    border-bottom: 1px solid var(--border-primary);
+  }
+  .import-modal__guide-panel {
+    width: 100%;
+  }
+}
+
+
 
 

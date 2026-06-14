@@ -12,6 +12,119 @@ import {
 import { PromptDialog } from '@/components/common/PromptDialog';
 import { ConfirmDialog } from '@/components/common/ConfirmDialog';
 import { useToastStore } from '@/stores/toastStore';
+const JSON_TEMPLATE = `{
+  "name": "Sample Gateway API",
+  "baseUrl": "https://api.example.com",
+  "variables": [
+    {
+      "key": "env",
+      "value": "staging",
+      "enabled": true
+    }
+  ],
+  "actionGroups": [
+    {
+      "name": "User Authentication",
+      "description": "Authenticate user and fetch profile info",
+      "order": 0,
+      "steps": [
+        {
+          "name": "Login Request",
+          "order": 0,
+          "method": "POST",
+          "path": "/auth/login",
+          "headers": [
+            { "key": "Content-Type", "value": "application/json", "enabled": true }
+          ],
+          "body": {
+            "type": "json",
+            "content": "{\\n  \\"email\\": \\"user@example.com\\",\\n  \\"password\\": \\"securepassword\\"\\n}"
+          },
+          "extractions": [
+            {
+              "variableName": "accessToken",
+              "source": "body",
+              "selector": "data.token"
+            }
+          ],
+          "assertions": [
+            {
+              "target": "status",
+              "operator": "equals",
+              "expected": "200"
+            }
+          ]
+        },
+        {
+          "name": "Get Profile",
+          "order": 1,
+          "method": "GET",
+          "path": "/users/me",
+          "headers": [
+            { "key": "Authorization", "value": "Bearer {{steps.Login Request.accessToken}}", "enabled": true }
+          ],
+          "extractions": [],
+          "assertions": [
+            {
+              "target": "status",
+              "operator": "equals",
+              "expected": "200"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}`;
+
+const YAML_TEMPLATE = `name: Sample Gateway API
+baseUrl: https://api.example.com
+variables:
+  - key: env
+    value: staging
+    enabled: true
+actionGroups:
+  - name: User Authentication
+    description: Authenticate user and fetch profile info
+    order: 0
+    steps:
+      - name: Login Request
+        order: 0
+        method: POST
+        path: /auth/login
+        headers:
+          - key: Content-Type
+            value: application/json
+            enabled: true
+        body:
+          type: json
+          content: |
+            {
+              "email": "user@example.com",
+              "password": "securepassword"
+            }
+        extractions:
+          - variableName: accessToken
+            source: body
+            selector: data.token
+        assertions:
+          - target: status
+            operator: equals
+            expected: "200"
+      - name: Get Profile
+        order: 1
+        method: GET
+        path: /users/me
+        headers:
+          - key: Authorization
+            value: Bearer {{steps.Login Request.accessToken}}
+            enabled: true
+        extractions: []
+        assertions:
+          - target: status
+            operator: equals
+            expected: "200"`;
+
 import '../buckets/Buckets.css';
 
 export function DashboardHub() {
@@ -38,6 +151,7 @@ export function DashboardHub() {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [isImporting, setIsImporting] = useState(false);
+  const [templateTab, setTemplateTab] = useState<'json' | 'yaml'>('json');
 
   const validateAndSetFile = (file: File) => {
     const ext = file.name.split('.').pop()?.toLowerCase();
@@ -46,6 +160,23 @@ export function DashboardHub() {
     } else {
       addToast('Unsupported file type. Please upload a .json, .yaml, or .yml file.', 'error');
     }
+  };
+
+  const handleDownloadTemplate = (format: 'json' | 'yaml') => {
+    const filename = `fortest-template.${format}`;
+    const content = format === 'json' ? JSON_TEMPLATE : YAML_TEMPLATE;
+    const mimeType = format === 'json' ? 'application/json' : 'text/yaml';
+    
+    const blob = new Blob([content], { type: mimeType });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    addToast(`Template ${filename} downloaded successfully`, 'success');
   };
 
   const handleFileImportChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -403,77 +534,121 @@ export function DashboardHub() {
           }
         }}>
           <div className="modal-content import-modal" onClick={(e) => e.stopPropagation()}>
-            <h3 className="modal-title">Import Test Bucket</h3>
-            <p style={{ color: 'var(--text-secondary)', marginBottom: '20px', fontSize: '13px', lineHeight: 1.5 }}>
-              Select or drag and drop a test bucket configuration file. Supported formats: JSON (`.json`) or YAML (`.yaml`, `.yml`).
-            </p>
+            <div className="import-modal__split">
+              {/* Left Panel: Upload area */}
+              <div className="import-modal__upload-panel">
+                <h3 className="modal-title">Import Test Bucket</h3>
+                <p style={{ color: 'var(--text-secondary)', marginBottom: '20px', fontSize: '13px', lineHeight: 1.5 }}>
+                  Select or drag and drop a test bucket configuration file. Supported formats: JSON (`.json`) or YAML (`.yaml`, `.yml`).
+                </p>
 
-            {!selectedFile ? (
-              <div
-                className={`import-drop-zone ${isDragging ? 'import-drop-zone--dragging' : ''}`}
-                onClick={() => fileInputRef.current?.click()}
-                onDragEnter={handleDragEnter}
-                onDragOver={handleDragOver}
-                onDragLeave={handleDragLeave}
-                onDrop={handleDrop}
-              >
-                <InboxIcon size={36} style={{ color: 'var(--accent-primary)', marginBottom: '4px' }} />
-                <span className="import-drop-zone__title">Drag & drop file here, or click to browse</span>
-                <span className="import-drop-zone__sub">Supports JSON or YAML (max 10MB)</span>
-              </div>
-            ) : (
-              <div className="import-file-details">
-                <div className="import-file-details__icon">
-                  <SaveIcon size={24} />
-                </div>
-                <div className="import-file-details__info">
-                  <span className="import-file-details__name">{selectedFile.name}</span>
-                  <div className="import-file-details__meta">
-                    <span>{(selectedFile.size / 1024).toFixed(1)} KB</span>
-                    <span className="import-file-details__badge">
-                      {selectedFile.name.split('.').pop()?.toLowerCase()}
-                    </span>
+                {!selectedFile ? (
+                  <div
+                    className={`import-drop-zone ${isDragging ? 'import-drop-zone--dragging' : ''}`}
+                    onClick={() => fileInputRef.current?.click()}
+                    onDragEnter={handleDragEnter}
+                    onDragOver={handleDragOver}
+                    onDragLeave={handleDragLeave}
+                    onDrop={handleDrop}
+                  >
+                    <InboxIcon size={36} style={{ color: 'var(--accent-primary)', marginBottom: '4px' }} />
+                    <span className="import-drop-zone__title">Drag & drop file here, or click to browse</span>
+                    <span className="import-drop-zone__sub">Supports JSON or YAML (max 10MB)</span>
                   </div>
+                ) : (
+                  <div className="import-file-details">
+                    <div className="import-file-details__icon">
+                      <SaveIcon size={24} />
+                    </div>
+                    <div className="import-file-details__info">
+                      <span className="import-file-details__name">{selectedFile.name}</span>
+                      <div className="import-file-details__meta">
+                        <span>{(selectedFile.size / 1024).toFixed(1)} KB</span>
+                        <span className="import-file-details__badge">
+                          {selectedFile.name.split('.').pop()?.toLowerCase()}
+                        </span>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      className="import-file-details__clear"
+                      onClick={() => setSelectedFile(null)}
+                      title="Remove file"
+                    >
+                      <TrashIcon size={16} />
+                    </button>
+                  </div>
+                )}
+
+                <div className="modal-actions" style={{ marginTop: '24px' }}>
+                  <button
+                    type="button"
+                    className="btn btn--ghost"
+                    onClick={() => {
+                      setDialogState({ type: null });
+                      setSelectedFile(null);
+                    }}
+                    disabled={isImporting}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn--primary"
+                    onClick={handleImportSubmit}
+                    disabled={!selectedFile || isImporting}
+                    style={{ display: 'flex', alignItems: 'center', gap: '8px' }}
+                  >
+                    {isImporting ? (
+                      <>
+                        <div className="spinner" style={{ width: '14px', height: '14px', border: '2px solid rgba(255,255,255,0.3)', borderTopColor: '#fff' }}></div>
+                        Importing...
+                      </>
+                    ) : (
+                      'Import Bucket'
+                    )}
+                  </button>
                 </div>
+              </div>
+
+              {/* Right Panel: Educational guide & templates */}
+              <div className="import-modal__guide-panel">
+                <h4 className="import-guide__title">Configuration Guide</h4>
+                <p style={{ color: 'var(--text-secondary)', fontSize: '12px', lineHeight: 1.4, margin: '0 0 16px 0' }}>
+                  Imported configurations must comply with the schema. You can download copy-pasteable templates below.
+                </p>
+
+                <div className="import-guide__tabs">
+                  <button
+                    className={`import-guide__tab ${templateTab === 'json' ? 'import-guide__tab--active' : ''}`}
+                    onClick={() => setTemplateTab('json')}
+                  >
+                    JSON Template
+                  </button>
+                  <button
+                    className={`import-guide__tab ${templateTab === 'yaml' ? 'import-guide__tab--active' : ''}`}
+                    onClick={() => setTemplateTab('yaml')}
+                  >
+                    YAML Template
+                  </button>
+                </div>
+
+                <div className="import-guide__preview-container">
+                  <pre className="import-guide__preview">
+                    <code>{templateTab === 'json' ? JSON_TEMPLATE : YAML_TEMPLATE}</code>
+                  </pre>
+                </div>
+
                 <button
                   type="button"
-                  className="import-file-details__clear"
-                  onClick={() => setSelectedFile(null)}
-                  title="Remove file"
+                  className="btn btn--secondary"
+                  style={{ width: '100%', marginTop: '16px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}
+                  onClick={() => handleDownloadTemplate(templateTab)}
                 >
-                  <TrashIcon size={16} />
+                  <SaveIcon size={14} />
+                  Download {templateTab.toUpperCase()} Template
                 </button>
               </div>
-            )}
-
-            <div className="modal-actions" style={{ marginTop: '24px' }}>
-              <button
-                type="button"
-                className="btn btn--ghost"
-                onClick={() => {
-                  setDialogState({ type: null });
-                  setSelectedFile(null);
-                }}
-                disabled={isImporting}
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                className="btn btn--primary"
-                onClick={handleImportSubmit}
-                disabled={!selectedFile || isImporting}
-                style={{ display: 'flex', alignItems: 'center', gap: '8px' }}
-              >
-                {isImporting ? (
-                  <>
-                    <div className="spinner" style={{ width: '14px', height: '14px', border: '2px solid rgba(255,255,255,0.3)', borderTopColor: '#fff' }}></div>
-                    Importing...
-                  </>
-                ) : (
-                  'Import Bucket'
-                )}
-              </button>
             </div>
           </div>
         </div>
