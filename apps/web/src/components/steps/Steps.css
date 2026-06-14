@@ -387,3 +387,19 @@
   margin-top: 4px;
 }
 
+/* Drag and Drop classes for Step timeline */
+.step-node--dragging {
+  opacity: 0.3;
+  border: 1px dashed var(--accent-primary);
+  border-radius: var(--radius-md);
+  transform: scale(0.98);
+}
+
+.step-node--drag-over .step-node__card {
+  border-color: var(--accent-primary) !important;
+  background-color: var(--bg-hover) !important;
+  box-shadow: 0 0 0 2px var(--accent-subtle) !important;
+  transform: translateY(-2px);
+}
+
+

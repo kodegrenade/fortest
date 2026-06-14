@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useExecutionStore } from '@/stores/executionStore';
 import { ClockIcon } from '@/components/common/Icons';
 
@@ -8,6 +8,8 @@ interface AnalyticsChartsProps {
 
 export function AnalyticsCharts({ groupId }: AnalyticsChartsProps) {
   const { pastRuns, pastRunsLoading, loadRuns } = useExecutionStore();
+  const [hoveredRunIndex, setHoveredRunIndex] = useState<number | null>(null);
+  const [tooltipPos, setTooltipPos] = useState<{ x: number; y: number } | null>(null);
 
   useEffect(() => {
     loadRuns(groupId);
@@ -196,11 +198,36 @@ export function AnalyticsCharts({ groupId }: AnalyticsChartsProps) {
                   const x = 50 + (index * (500 / (numPoints - 1)));
                   const yAvg = 160 - ((run.metrics?.avgLatency || 0) / maxScale) * 120;
                   const yP95 = 160 - ((run.metrics?.p95 || 0) / maxScale) * 120;
+                  const isHovered = hoveredRunIndex === index;
                   return (
                     <g key={index}>
-                      <circle cx={x} cy={yAvg} r="3.5" fill="var(--bg-secondary)" stroke="var(--accent-primary)" strokeWidth="1.5" />
-                      <circle cx={x} cy={yP95} r="3" fill="var(--bg-secondary)" stroke="var(--status-5xx)" strokeWidth="1.5" />
+                      <circle cx={x} cy={yAvg} r={isHovered ? 5 : 3.5} fill="var(--bg-secondary)" stroke="var(--accent-primary)" strokeWidth={isHovered ? 2.5 : 1.5} style={{ transition: 'all var(--transition-fast)' }} />
+                      <circle cx={x} cy={yP95} r={isHovered ? 4.5 : 3} fill="var(--bg-secondary)" stroke="var(--status-5xx)" strokeWidth={isHovered ? 2.5 : 1.5} style={{ transition: 'all var(--transition-fast)' }} />
                     </g>
+                  );
+                })}
+
+                {/* Invisible larger hover zone targets for better UX */}
+                {chartRuns.map((run, index) => {
+                  const x = 50 + (index * (500 / (numPoints - 1 || 1)));
+                  const yAvg = 160 - ((run.metrics?.avgLatency || 0) / maxScale) * 120;
+                  return (
+                    <circle
+                      key={`hover-${index}`}
+                      cx={x}
+                      cy={yAvg}
+                      r="16"
+                      fill="transparent"
+                      style={{ cursor: 'pointer', pointerEvents: 'all' }}
+                      onMouseEnter={() => {
+                        setHoveredRunIndex(index);
+                        setTooltipPos({ x, y: yAvg });
+                      }}
+                      onMouseLeave={() => {
+                        setHoveredRunIndex(null);
+                        setTooltipPos(null);
+                      }}
+                    />
                   );
                 })}
               </>
@@ -209,6 +236,67 @@ export function AnalyticsCharts({ groupId }: AnalyticsChartsProps) {
               <circle cx="50" cy="100" r="4" fill="var(--accent-primary)" />
             )}
           </svg>
+
+          {/* Interactive glassmorphic tooltip card */}
+          {hoveredRunIndex !== null && tooltipPos && chartRuns[hoveredRunIndex] && (
+            <div
+              style={{
+                position: 'absolute',
+                left: `${(tooltipPos.x / 580) * 100}%`,
+                top: `${(tooltipPos.y / 200) * 100}%`,
+                transform: 'translate(-50%, -100%) translateY(-10px)',
+                backgroundColor: 'rgba(30, 31, 41, 0.85)',
+                border: '1px solid var(--border-primary)',
+                borderRadius: 'var(--radius-md)',
+                padding: '8px 12px',
+                boxShadow: 'var(--shadow-lg)',
+                color: 'var(--text-primary)',
+                fontSize: '11px',
+                zIndex: 10,
+                pointerEvents: 'none',
+                whiteSpace: 'nowrap',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '4px',
+                backdropFilter: 'blur(8px)',
+                WebkitBackdropFilter: 'blur(8px)',
+              }}
+            >
+              <div style={{ fontWeight: 600, color: 'var(--accent-primary)', borderBottom: '1px solid var(--border-secondary)', paddingBottom: '3px', marginBottom: '2px' }}>
+                Run #{totalRunsCount - numPoints + hoveredRunIndex + 1}
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', gap: '16px' }}>
+                <span style={{ color: 'var(--text-secondary)' }}>Status:</span>
+                <span style={{
+                  fontWeight: 600,
+                  color: (chartRuns[hoveredRunIndex].status === 'completed' && (chartRuns[hoveredRunIndex].metrics?.errorRate || 0) === 0)
+                    ? 'var(--status-2xx)'
+                    : 'var(--status-5xx)'
+                }}>
+                  {(chartRuns[hoveredRunIndex].status === 'completed' && (chartRuns[hoveredRunIndex].metrics?.errorRate || 0) === 0) ? 'Passed' : 'Failed'}
+                </span>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', gap: '16px' }}>
+                <span style={{ color: 'var(--text-secondary)' }}>Average:</span>
+                <span style={{ fontWeight: 500 }}>{chartRuns[hoveredRunIndex].metrics?.avgLatency || 0} ms</span>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', gap: '16px' }}>
+                <span style={{ color: 'var(--text-secondary)' }}>P95 Latency:</span>
+                <span style={{ fontWeight: 500 }}>{chartRuns[hoveredRunIndex].metrics?.p95 || 0} ms</span>
+              </div>
+              {chartRuns[hoveredRunIndex].metrics && (
+                <div style={{ display: 'flex', justifyContent: 'space-between', gap: '16px' }}>
+                  <span style={{ color: 'var(--text-secondary)' }}>Success Rate:</span>
+                  <span style={{
+                    fontWeight: 600,
+                    color: (100 - (chartRuns[hoveredRunIndex].metrics?.errorRate || 0)) === 100 ? 'var(--status-2xx)' : 'var(--status-5xx)'
+                  }}>
+                    {100 - (chartRuns[hoveredRunIndex].metrics?.errorRate || 0)}%
+                  </span>
+                </div>
+              )}
+            </div>
+          )}
         </div>
       </div>
     </div>

@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useBucketStore } from '@/stores/bucketStore';
 import { StepEditor } from '../steps/StepEditor';
-import { PlusIcon, TrashIcon, LayersIcon, ChevronLeftIcon, PlayIcon } from '@/components/common/Icons';
+import { PlusIcon, TrashIcon, LayersIcon, ChevronLeftIcon, PlayIcon, CopyIcon } from '@/components/common/Icons';
 import { PromptDialog } from '@/components/common/PromptDialog';
 import { ConfirmDialog } from '@/components/common/ConfirmDialog';
 import { EmptyState } from '@/components/common/EmptyState';
@@ -23,6 +23,8 @@ export function ActionGroupPanel() {
     setActiveGroup,
     addStep,
     deleteStep,
+    reorderSteps,
+    duplicateStep,
   } = useBucketStore();
   const { addToast } = useToastStore();
   const { activeRun, clearRun } = useExecutionStore();
@@ -37,6 +39,10 @@ export function ActionGroupPanel() {
 
   const [isRunConfigOpen, setIsRunConfigOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<'steps' | 'history' | 'analytics'>('steps');
+
+  // Drag and Drop local states
+  const [draggedStepId, setDraggedStepId] = useState<string | null>(null);
+  const [dragOverStepId, setDragOverStepId] = useState<string | null>(null);
 
   // Reset tab to steps when switching action groups
   useEffect(() => {
@@ -63,6 +69,8 @@ export function ActionGroupPanel() {
 
   if (!bucket || !group) return null;
 
+  const sortedSteps = [...group.steps].sort((a, b) => a.order - b.order);
+
   const handleCreateStepConfirm = async (name: string) => {
     if (bucket && group) {
       try {
@@ -87,6 +95,65 @@ export function ActionGroupPanel() {
     setDialogState({ type: null });
   };
 
+  const handleDuplicateStep = async (stepId: string, stepName: string) => {
+    if (bucket && group) {
+      try {
+        await duplicateStep(bucket.id, group.id, stepId);
+        addToast(`Step "${stepName}" duplicated successfully`, 'success');
+      } catch (err: any) {
+        addToast(err.message || 'Failed to duplicate step', 'error');
+      }
+    }
+  };
+
+  // Drag and drop timeline handlers
+  const handleDragStart = (e: React.DragEvent, stepId: string) => {
+    e.dataTransfer.setData('text/plain', stepId);
+    setDraggedStepId(stepId);
+    e.dataTransfer.effectAllowed = 'move';
+  };
+
+  const handleDragOver = (e: React.DragEvent, stepId: string) => {
+    e.preventDefault();
+    if (draggedStepId === stepId) return;
+    setDragOverStepId(stepId);
+  };
+
+  const handleDragLeave = () => {
+    setDragOverStepId(null);
+  };
+
+  const handleDragEnd = () => {
+    setDraggedStepId(null);
+    setDragOverStepId(null);
+  };
+
+  const handleDrop = async (e: React.DragEvent, targetStepId: string) => {
+    e.preventDefault();
+    const draggedId = e.dataTransfer.getData('text/plain');
+    if (!draggedId || draggedId === targetStepId) return;
+
+    const draggedIndex = sortedSteps.findIndex((s) => s.id === draggedId);
+    const targetIndex = sortedSteps.findIndex((s) => s.id === targetStepId);
+    if (draggedIndex === -1 || targetIndex === -1) return;
+
+    const newSteps = [...sortedSteps];
+    const [removed] = newSteps.splice(draggedIndex, 1);
+    newSteps.splice(targetIndex, 0, removed!);
+
+    const newStepIds = newSteps.map((s) => s.id);
+
+    try {
+      await reorderSteps(bucket.id, group.id, newStepIds);
+      addToast('Steps reordered successfully', 'success');
+    } catch (err: any) {
+      addToast(err.message || 'Failed to reorder steps', 'error');
+    }
+
+    setDraggedStepId(null);
+    setDragOverStepId(null);
+  };
+
   if (activeRun) {
     return (
       <div style={{ display: 'flex', flexDirection: 'column', height: '100%', padding: '24px', overflow: 'hidden', backgroundColor: 'var(--bg-primary)' }}>
@@ -94,8 +161,6 @@ export function ActionGroupPanel() {
       </div>
     );
   }
-
-  const sortedSteps = [...group.steps].sort((a, b) => a.order - b.order);
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
@@ -215,8 +280,17 @@ export function ActionGroupPanel() {
                   return (
                     <div
                       key={step.id}
-                      className={`step-node ${isActive ? 'step-node--active' : ''}`}
+                      className={`step-node ${isActive ? 'step-node--active' : ''} ${
+                        draggedStepId === step.id ? 'step-node--dragging' : ''
+                      } ${dragOverStepId === step.id ? 'step-node--drag-over' : ''}`}
+                      style={{ cursor: draggedStepId === step.id ? 'grabbing' : 'grab' }}
                       onClick={() => setActiveStep(step.id)}
+                      draggable={true}
+                      onDragStart={(e) => handleDragStart(e, step.id)}
+                      onDragOver={(e) => handleDragOver(e, step.id)}
+                      onDragLeave={handleDragLeave}
+                      onDragEnd={handleDragEnd}
+                      onDrop={(e) => handleDrop(e, step.id)}
                     >
                       <div className="step-node__dot">{index + 1}</div>
                       <div className="step-node__card">
@@ -231,6 +305,14 @@ export function ActionGroupPanel() {
                         </div>
 
                         <div className="step-node__actions" onClick={(e) => e.stopPropagation()}>
+                          <button
+                            className="btn btn--icon"
+                            title="Duplicate Step"
+                            style={{ width: '24px', height: '24px', color: 'var(--text-secondary)', marginRight: '4px' }}
+                            onClick={() => handleDuplicateStep(step.id, step.name)}
+                          >
+                            <CopyIcon size={12} />
+                          </button>
                           <button
                             className="btn btn--icon"
                             title="Delete Step"

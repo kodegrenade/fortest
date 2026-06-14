@@ -32,6 +32,8 @@ interface BucketState {
   addStep: (bucketId: string, groupId: string, name: string) => Promise<void>;
   updateStep: (bucketId: string, groupId: string, stepId: string, data: Partial<Step>) => Promise<void>;
   deleteStep: (bucketId: string, groupId: string, stepId: string) => Promise<void>;
+  reorderSteps: (bucketId: string, groupId: string, stepIds: string[]) => Promise<void>;
+  duplicateStep: (bucketId: string, groupId: string, stepId: string) => Promise<void>;
 }
 
 export const useBucketStore = create<BucketState>((set, get) => ({
@@ -268,6 +270,83 @@ export const useBucketStore = create<BucketState>((set, get) => ({
     if (activeStepId === stepId) {
       set({ activeStepId: null });
     }
+
+    await get().updateBucket(bucketId, { actionGroups: updatedGroups });
+  },
+
+  reorderSteps: async (bucketId, groupId, stepIds) => {
+    const bucket = get().buckets.find((b) => b.id === bucketId);
+    if (!bucket) return;
+
+    const updatedGroups = bucket.actionGroups.map((g) => {
+      if (g.id === groupId) {
+        const reordered = g.steps
+          .map((s) => {
+            const newIndex = stepIds.indexOf(s.id);
+            return {
+              ...s,
+              order: newIndex !== -1 ? newIndex : s.order,
+            };
+          })
+          .sort((a, b) => a.order - b.order);
+
+        return {
+          ...g,
+          steps: reordered,
+          updatedAt: new Date().toISOString(),
+        };
+      }
+      return g;
+    });
+
+    await get().updateBucket(bucketId, { actionGroups: updatedGroups });
+  },
+
+  duplicateStep: async (bucketId, groupId, stepId) => {
+    const bucket = get().buckets.find((b) => b.id === bucketId);
+    if (!bucket) return;
+
+    const group = bucket.actionGroups.find((g) => g.id === groupId);
+    if (!group) return;
+
+    const sourceStep = group.steps.find((s) => s.id === stepId);
+    if (!sourceStep) return;
+
+    const newStep: Step = {
+      ...sourceStep,
+      id: crypto.randomUUID(),
+      name: `${sourceStep.name} (Copy)`,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      headers: sourceStep.headers.map((h) => ({ ...h, id: crypto.randomUUID() })),
+      params: sourceStep.params.map((p) => ({ ...p, id: crypto.randomUUID() })),
+      body: {
+        ...sourceStep.body,
+      },
+      extractions: sourceStep.extractions.map((e) => ({ ...e, id: crypto.randomUUID() })),
+      assertions: sourceStep.assertions.map((a) => ({ ...a, id: crypto.randomUUID() })),
+    };
+
+    const sortedSteps = [...group.steps].sort((a, b) => a.order - b.order);
+    const sourceIndex = sortedSteps.findIndex((s) => s.id === stepId);
+
+    sortedSteps.splice(sourceIndex + 1, 0, newStep);
+
+    const updatedSteps = sortedSteps.map((s, index) => ({
+      ...s,
+      order: index,
+    }));
+
+    const updatedGroups = bucket.actionGroups.map((g) => {
+      if (g.id === groupId) {
+        return {
+          ...g,
+          steps: updatedSteps,
+          updatedAt: new Date().toISOString(),
+        };
+      }
+      return g;
+    });
 
     await get().updateBucket(bucketId, { actionGroups: updatedGroups });
   },
