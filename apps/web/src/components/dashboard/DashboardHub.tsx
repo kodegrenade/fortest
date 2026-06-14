@@ -7,6 +7,7 @@ import {
   TrashIcon,
   InboxIcon,
   SaveIcon,
+  XIcon,
 } from '@/components/common/Icons';
 import { PromptDialog } from '@/components/common/PromptDialog';
 import { ConfirmDialog } from '@/components/common/ConfirmDialog';
@@ -26,6 +27,7 @@ export function DashboardHub() {
   const { addToast } = useToastStore();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  const [isFabOpen, setIsFabOpen] = useState(false);
   const [dialogState, setDialogState] = useState<{
     type: 'createBucket' | 'renameBucket' | 'deleteBucket' | 'exportBucket' | null;
     bucketId?: string;
@@ -118,38 +120,14 @@ export function DashboardHub() {
           <div className="spinner"></div>
           <span style={{ fontSize: '14px', fontWeight: 500 }}>Loading buckets...</span>
         </div>
+      ) : buckets.length === 0 ? (
+        <div className="dashboard-hub__empty-state">
+          <BucketIcon size={48} style={{ color: 'var(--text-tertiary)', marginBottom: '16px' }} />
+          <h3>No Test Buckets Found</h3>
+          <p>Click the floating action button in the bottom right corner to create or import a test bucket and begin configuration.</p>
+        </div>
       ) : (
         <div className="dashboard-hub__grid">
-        {/* Create Card */}
-        <div
-          className="bucket-card bucket-card--create"
-          onClick={() => setDialogState({ type: 'createBucket' })}
-        >
-          <PlusIcon size={32} style={{ color: 'var(--accent-primary)' }} />
-          <span style={{ fontWeight: 600, fontSize: '14px', color: 'var(--text-secondary)' }}>
-            Create New Test Bucket
-          </span>
-        </div>
-
-        {/* Import Card */}
-        <div
-          className="bucket-card bucket-card--create"
-          onClick={() => fileInputRef.current?.click()}
-          style={{ borderStyle: 'dashed', borderColor: 'var(--border-primary)' }}
-        >
-          <InboxIcon size={32} style={{ color: 'var(--accent-primary)' }} />
-          <span style={{ fontWeight: 600, fontSize: '14px', color: 'var(--text-secondary)' }}>
-            Import Bucket (JSON/YAML)
-          </span>
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept=".json,.yaml,.yml"
-            onChange={handleFileImportChange}
-            style={{ display: 'none' }}
-          />
-        </div>
-
         {/* Bucket Cards */}
         {buckets.map((bucket) => {
           const groupCount = bucket.actionGroups?.length || 0;
@@ -232,6 +210,67 @@ export function DashboardHub() {
         })}
       </div>
       )}
+
+      {/* Hidden file input for import */}
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept=".json,.yaml,.yml"
+        onChange={handleFileImportChange}
+        style={{ display: 'none' }}
+      />
+
+      {/* Floating Action Button (FAB) Dial Menu */}
+      {isFabOpen && (
+        <div
+          className="dashboard-hub__fab-overlay"
+          onClick={() => setIsFabOpen(false)}
+          style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            zIndex: 999,
+            backgroundColor: 'transparent',
+          }}
+        />
+      )}
+
+      <div className={`dashboard-hub__fab-container ${isFabOpen ? 'dashboard-hub__fab-container--open' : ''}`}>
+        {/* Option: Create Bucket */}
+        <button
+          className="dashboard-hub__fab-option dashboard-hub__fab-option--create"
+          onClick={() => {
+            setIsFabOpen(false);
+            setDialogState({ type: 'createBucket' });
+          }}
+        >
+          <PlusIcon size={20} />
+          <span className="dashboard-hub__fab-label">Create Bucket</span>
+        </button>
+
+        {/* Option: Import Bucket */}
+        <button
+          className="dashboard-hub__fab-option dashboard-hub__fab-option--import"
+          onClick={() => {
+            setIsFabOpen(false);
+            fileInputRef.current?.click();
+          }}
+        >
+          <InboxIcon size={20} />
+          <span className="dashboard-hub__fab-label">Import Bucket</span>
+        </button>
+
+        {/* Main Trigger Button */}
+        <button
+          className={`dashboard-hub__fab-trigger ${isFabOpen ? 'dashboard-hub__fab-trigger--open' : ''}`}
+          onClick={() => setIsFabOpen(!isFabOpen)}
+          title={isFabOpen ? 'Close Menu' : 'Add or Import Bucket'}
+        >
+          {isFabOpen ? <XIcon size={24} /> : <BucketIcon size={24} />}
+        </button>
+      </div>
 
       {/* Modals */}
       {dialogState.type === 'createBucket' && (

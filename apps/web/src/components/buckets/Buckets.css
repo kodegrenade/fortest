@@ -366,3 +366,169 @@
   margin-bottom: 4px;
 }
 
+/* --- Floating Action Button (FAB) Dial Menu --- */
+
+.dashboard-hub__fab-container {
+  position: fixed;
+  bottom: 32px;
+  right: 32px;
+  z-index: 1000;
+  width: 56px;
+  height: 56px;
+}
+
+.dashboard-hub__fab-trigger {
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  background: var(--accent-primary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #ffffff;
+  cursor: pointer;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  border: none;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.4);
+  z-index: 10;
+  position: absolute;
+  bottom: 0;
+  right: 0;
+}
+
+.dashboard-hub__fab-trigger:hover {
+  background: var(--accent-hover);
+  transform: scale(1.05);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.5);
+}
+
+.dashboard-hub__fab-trigger--open {
+  background: var(--method-delete); /* visual indicator of close action */
+  transform: rotate(90deg);
+}
+
+.dashboard-hub__fab-trigger--open:hover {
+  background: var(--method-delete); /* preserve delete/danger red on hover in open state */
+}
+
+.dashboard-hub__fab-option {
+  position: absolute;
+  width: 46px;
+  height: 46px;
+  border-radius: 50%;
+  background-color: var(--bg-secondary);
+  border: 1px solid var(--border-primary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-primary);
+  cursor: pointer;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.3);
+  z-index: 5;
+  bottom: 5px;
+  right: 5px;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.dashboard-hub__fab-option:hover {
+  border-color: var(--accent-primary);
+  color: var(--accent-primary);
+  background-color: var(--bg-hover);
+  transform: scale(1.1);
+}
+
+/* Float Options around the main bucket icon (Fanning Out) */
+/* Option 1 (Create Bucket): Diagonal fanning up-left (translate -76px, -20px) */
+.dashboard-hub__fab-container--open .dashboard-hub__fab-option--create {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translate(-76px, -20px);
+}
+
+/* Option 2 (Import Bucket): Diagonal fanning left-up (translate -20px, -76px) */
+.dashboard-hub__fab-container--open .dashboard-hub__fab-option--import {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translate(-20px, -76px);
+}
+
+/* Label styles */
+.dashboard-hub__fab-label {
+  position: absolute;
+  background-color: var(--bg-tertiary);
+  border: 1px solid var(--border-primary);
+  color: var(--text-primary);
+  font-size: 11px;
+  font-weight: 600;
+  padding: 4px 8px;
+  border-radius: var(--radius-sm);
+  white-space: nowrap;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.2s ease, transform 0.2s ease;
+  box-shadow: var(--shadow-md);
+  z-index: 4;
+}
+
+/* Positioning labels relative to the fanning buttons */
+.dashboard-hub__fab-option--create .dashboard-hub__fab-label {
+  bottom: 52px;
+  left: 50%;
+  transform: translateX(-50%) translateY(4px);
+}
+
+.dashboard-hub__fab-option--import .dashboard-hub__fab-label {
+  right: 52px;
+  top: 50%;
+  transform: translateY(-50%) translateX(4px);
+}
+
+.dashboard-hub__fab-option:hover .dashboard-hub__fab-label {
+  opacity: 1;
+  transform: translate(0, 0); /* reset transition slide */
+}
+
+/* Adjust create option label transform on hover */
+.dashboard-hub__fab-option--create:hover .dashboard-hub__fab-label {
+  transform: translateX(-50%) translateY(0);
+}
+
+/* Adjust import option label transform on hover */
+.dashboard-hub__fab-option--import:hover .dashboard-hub__fab-label {
+  transform: translateY(-50%) translateX(0);
+}
+
+/* Empty State styling */
+.dashboard-hub__empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 320px;
+  text-align: center;
+  border: 2px dashed var(--border-secondary);
+  border-radius: var(--radius-lg);
+  padding: 40px;
+  background-color: var(--bg-secondary);
+  color: var(--text-secondary);
+  margin-top: 16px;
+}
+
+.dashboard-hub__empty-state h3 {
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin: 0 0 8px 0;
+}
+
+.dashboard-hub__empty-state p {
+  font-size: 13px;
+  color: var(--text-tertiary);
+  margin: 0;
+  max-width: 400px;
+  line-height: 1.5;
+}
+
+
