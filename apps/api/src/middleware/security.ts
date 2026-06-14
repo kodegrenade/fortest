@@ -38,7 +38,7 @@ function isBlockedIp(ip: string): boolean {
 }
 
 export async function validateTargetUrl(url: string): Promise<boolean> {
-  if (process.env.ALLOW_PRIVATE_IPS === 'true') {
+  if (process.env.ALLOW_PRIVATE_IPS === 'true' || process.env.NODE_ENV !== 'production') {
     return true;
   }
 

@@ -6,12 +6,17 @@ interface ExecutionState {
   isRunning: boolean;
   error: string | null;
   selectedStepId: string | null; // For displaying detail cards in the UI
+  selectedIteration: number | null; // For mapping details to correct iteration
+  pastRuns: ExecutionRun[];
+  pastRunsLoading: boolean;
 
   // Actions
   startRun: (bucketId: string, groupId: string, config?: ExecutionConfig) => Promise<string>;
   stopRun: () => void;
-  selectStep: (stepId: string | null) => void;
+  selectStep: (stepId: string | null, iteration?: number | null) => void;
   clearRun: () => void;
+  loadRuns: (groupId: string) => Promise<void>;
+  viewHistoricalRun: (runId: string) => Promise<void>;
 }
 
 const getWsUrl = (): string => {
@@ -31,15 +36,44 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
   isRunning: false,
   error: null,
   selectedStepId: null,
+  selectedIteration: null,
+  pastRuns: [],
+  pastRunsLoading: false,
 
-  selectStep: (stepId) => set({ selectedStepId: stepId }),
+  selectStep: (stepId, iteration = 1) => set({ selectedStepId: stepId, selectedIteration: iteration }),
 
   clearRun: () => {
     if (wsInstance) {
       wsInstance.close();
       wsInstance = null;
     }
-    set({ activeRun: null, isRunning: false, error: null, selectedStepId: null });
+    set({ activeRun: null, isRunning: false, error: null, selectedStepId: null, selectedIteration: null });
+  },
+
+  loadRuns: async (groupId) => {
+    set({ pastRunsLoading: true });
+    try {
+      const res = await fetch(`/api/runs?groupId=${groupId}`);
+      if (!res.ok) throw new Error('Failed to load past runs');
+      const data = await res.json();
+      set({ pastRuns: data, pastRunsLoading: false });
+    } catch (err: any) {
+      console.error(err);
+      set({ pastRunsLoading: false });
+    }
+  },
+
+  viewHistoricalRun: async (runId) => {
+    set({ isRunning: false, error: null, selectedStepId: null, selectedIteration: null });
+    try {
+      const res = await fetch(`/api/runs/${runId}`);
+      if (!res.ok) throw new Error('Failed to load historical run details');
+      const run = await res.json();
+      set({ activeRun: run });
+    } catch (err: any) {
+      console.error(err);
+      set({ error: err.message || 'Failed to inspect run' });
+    }
   },
 
   startRun: async (bucketId, groupId, config) => {
@@ -101,11 +135,12 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
             case 'step:started': {
               const currentRun = get().activeRun;
               if (currentRun) {
+                const stepIteration = message.iteration || 1;
                 // Pre-populate a loading step placeholder
                 const tempResult: StepResult = {
                   stepId: message.stepId,
                   stepName: message.stepName,
-                  iteration: 1,
+                  iteration: stepIteration,
                   status: 0,
                   statusText: 'Executing...', // Temp text
                   responseTime: 0,
@@ -123,13 +158,16 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
                 set({
                   activeRun: {
                     ...currentRun,
-                    results: [...currentRun.results.filter(r => r.stepId !== message.stepId), tempResult],
+                    results: [
+                      ...currentRun.results.filter(r => !(r.stepId === message.stepId && r.iteration === stepIteration)),
+                      tempResult
+                    ],
                   },
                 });
                 
                 // Auto-select the first executing step if none is selected
                 if (!get().selectedStepId) {
-                  set({ selectedStepId: message.stepId });
+                  set({ selectedStepId: message.stepId, selectedIteration: stepIteration });
                 }
               }
               break;
@@ -138,10 +176,11 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
             case 'step:completed': {
               const currentRun = get().activeRun;
               if (currentRun) {
+                const stepIteration = message.iteration || 1;
                 const updatedResult: StepResult = {
                   stepId: message.stepId,
                   stepName: message.stepName,
-                  iteration: 1,
+                  iteration: stepIteration,
                   status: message.statusCode,
                   statusText: String(message.statusCode),
                   responseTime: message.responseTime,
@@ -160,7 +199,7 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
                   activeRun: {
                     ...currentRun,
                     results: currentRun.results.map((r) =>
-                      r.stepId === message.stepId ? { ...r, ...updatedResult } : r
+                      (r.stepId === message.stepId && r.iteration === stepIteration) ? { ...r, ...updatedResult } : r
                     ),
                   },
                 });
@@ -171,6 +210,7 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
             case 'step:failed': {
               const currentRun = get().activeRun;
               if (currentRun) {
+                const stepIteration = message.iteration || 1;
                 const updatedResult: Partial<StepResult> = {
                   status: 0,
                   statusText: 'Failed',
@@ -185,7 +225,7 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
                   activeRun: {
                     ...currentRun,
                     results: currentRun.results.map((r) =>
-                      r.stepId === message.stepId ? { ...r, ...updatedResult } : r
+                      (r.stepId === message.stepId && r.iteration === stepIteration) ? { ...r, ...updatedResult } : r
                     ),
                   },
                 });

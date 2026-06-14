@@ -227,8 +227,7 @@
 /* --- Dashboard Hub Landing Page --- */
 .dashboard-hub {
   padding: 32px;
-  max-width: 1200px;
-  margin: 0 auto;
+  width: 100%;
   display: flex;
   flex-direction: column;
   gap: 24px;
@@ -256,7 +255,7 @@
 
 .dashboard-hub__grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
   gap: 20px;
   padding: 4px 0;
 }

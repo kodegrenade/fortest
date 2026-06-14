@@ -99,6 +99,11 @@ export async function runGroup(
 
   await saveRun(run);
 
+  // Associate run with action group history
+  const runsKey = `group:${groupId}:runs`;
+  const adapter = getStorageAdapter();
+  await adapter.zadd(runsKey, Date.now(), runId);
+
   // Give the WebSocket client a moment to connect and subscribe
   await new Promise((resolve) => setTimeout(resolve, 100));
 
@@ -141,6 +146,9 @@ export async function runGroup(
     const sortedSteps = [...group.steps].sort((a, b) => a.order - b.order);
 
     for (const step of sortedSteps) {
+      const stepStartTime = performance.now();
+      let finalUrl = '';
+
       emitEvent({
         type: 'step:started',
         runId,
@@ -149,74 +157,73 @@ export async function runGroup(
         iteration: iterNum,
       });
 
-      // 1. Resolve interpolation context
-      const resPath = interpolate(step.path || '', iterVariables).resolved;
-      
-      // Resolve Query parameters
-      const resolvedParams: string[] = [];
-      for (const p of step.params || []) {
-        if (!p.enabled) continue;
-        const resKey = interpolate(p.key, iterVariables).resolved;
-        const resVal = interpolate(p.value, iterVariables).resolved;
-        resolvedParams.push(`${encodeURIComponent(resKey)}=${encodeURIComponent(resVal)}`);
-      }
-
-      // Add query param auth if applicable
-      const activeAuth = step.auth && step.auth.type !== 'none' ? step.auth : bucket.auth;
-      if (activeAuth.type === 'api-key' && activeAuth.apiKey && activeAuth.apiKey.addTo === 'query') {
-        const key = interpolate(activeAuth.apiKey.key, iterVariables).resolved;
-        const value = interpolate(activeAuth.apiKey.value, iterVariables).resolved;
-        resolvedParams.push(`${encodeURIComponent(key)}=${encodeURIComponent(value)}`);
-      }
-
-      let finalPath = resPath;
-      if (resolvedParams.length > 0) {
-        finalPath += (finalPath.includes('?') ? '&' : '?') + resolvedParams.join('&');
-      }
-
-      const resBaseUrl = interpolate(bucket.baseUrl || '', iterVariables).resolved;
-      let finalUrl = resBaseUrl;
-      if (finalUrl && !finalUrl.endsWith('/') && !finalPath.startsWith('/')) {
-        finalUrl += '/';
-      }
-      finalUrl += finalPath;
-
-      // 2. Validate URL against SSRF
-      const isSafeUrl = await validateTargetUrl(finalUrl);
-      if (!isSafeUrl) {
-        throw new Error(`SSRF Blocked: URL target is loopback/private IP: ${finalUrl}`);
-      }
-
-      // 3. Resolve request headers
-      const resolvedHeaders: Record<string, string> = {};
-      for (const h of step.headers || []) {
-        if (!h.enabled) continue;
-        const resKey = interpolate(h.key, iterVariables).resolved;
-        const resVal = interpolate(h.value, iterVariables).resolved;
-        resolvedHeaders[resKey] = resVal;
-      }
-
-      // Merge auth headers
-      const authHeaders = resolveAuthHeaders(activeAuth, iterVariables);
-      Object.assign(resolvedHeaders, authHeaders);
-
-      // Default JSON content type if JSON body
-      if (step.body && step.body.type === 'json' && !resolvedHeaders['content-type']) {
-        resolvedHeaders['content-type'] = 'application/json';
-      }
-
-      // 4. Resolve Body Content
-      let finalBody: string | undefined = undefined;
-      if (step.body && step.body.type !== 'none') {
-        finalBody = interpolate(step.body.content, iterVariables).resolved;
-      }
-
-      // 5. Execute HTTP Request
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 10000);
-      const stepStartTime = performance.now();
-
       try {
+        // 1. Resolve interpolation context
+        const resPath = interpolate(step.path || '', iterVariables).resolved;
+        
+        // Resolve Query parameters
+        const resolvedParams: string[] = [];
+        for (const p of step.params || []) {
+          if (!p.enabled) continue;
+          const resKey = interpolate(p.key, iterVariables).resolved;
+          const resVal = interpolate(p.value, iterVariables).resolved;
+          resolvedParams.push(`${encodeURIComponent(resKey)}=${encodeURIComponent(resVal)}`);
+        }
+
+        // Add query param auth if applicable
+        const activeAuth = step.auth && step.auth.type !== 'none' ? step.auth : bucket.auth;
+        if (activeAuth.type === 'api-key' && activeAuth.apiKey && activeAuth.apiKey.addTo === 'query') {
+          const key = interpolate(activeAuth.apiKey.key, iterVariables).resolved;
+          const value = interpolate(activeAuth.apiKey.value, iterVariables).resolved;
+          resolvedParams.push(`${encodeURIComponent(key)}=${encodeURIComponent(value)}`);
+        }
+
+        let finalPath = resPath;
+        if (resolvedParams.length > 0) {
+          finalPath += (finalPath.includes('?') ? '&' : '?') + resolvedParams.join('&');
+        }
+
+        const resBaseUrl = interpolate(bucket.baseUrl || '', iterVariables).resolved;
+        finalUrl = resBaseUrl;
+        if (finalUrl && !finalUrl.endsWith('/') && !finalPath.startsWith('/')) {
+          finalUrl += '/';
+        }
+        finalUrl += finalPath;
+
+        // 2. Validate URL against SSRF
+        const isSafeUrl = await validateTargetUrl(finalUrl);
+        if (!isSafeUrl) {
+          throw new Error(`SSRF Blocked: URL target is loopback/private IP: ${finalUrl}`);
+        }
+
+        // 3. Resolve request headers
+        const resolvedHeaders: Record<string, string> = {};
+        for (const h of step.headers || []) {
+          if (!h.enabled) continue;
+          const resKey = interpolate(h.key, iterVariables).resolved;
+          const resVal = interpolate(h.value, iterVariables).resolved;
+          resolvedHeaders[resKey] = resVal;
+        }
+
+        // Merge auth headers
+        const authHeaders = resolveAuthHeaders(activeAuth, iterVariables);
+        Object.assign(resolvedHeaders, authHeaders);
+
+        // Default JSON content type if JSON body
+        if (step.body && step.body.type === 'json' && !resolvedHeaders['content-type']) {
+          resolvedHeaders['content-type'] = 'application/json';
+        }
+
+        // 4. Resolve Body Content
+        let finalBody: string | undefined = undefined;
+        if (step.body && step.body.type !== 'none') {
+          finalBody = interpolate(step.body.content, iterVariables).resolved;
+        }
+
+        // 5. Execute HTTP Request
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 10000);
+
         let fetchResponse: Response;
         try {
           fetchResponse = await fetch(finalUrl, {
@@ -320,7 +327,7 @@ export async function runGroup(
           assertions: [],
           error: stepErr.message || 'Unknown network or execution error',
           timestamp: new Date().toISOString(),
-          url: finalUrl,
+          url: finalUrl || step.path || '',
           method: step.method,
         };
 
@@ -335,7 +342,7 @@ export async function runGroup(
           iteration: iterNum,
           error: stepErr.message || 'Unknown network or execution error',
           responseTime: Math.round(stepElapsed),
-          url: finalUrl,
+          url: finalUrl || step.path || '',
           method: step.method,
         });
 
@@ -419,6 +426,9 @@ export async function runGroup(
       duration: Math.round(duration),
     });
 
+    // Trim old runs in background
+    trimOldRuns(groupId).catch((e) => console.error('Error trimming runs:', e));
+
   } catch (err: any) {
     const elapsed = performance.now() - startTime;
     console.error(`Execution failed for run ${runId}`, err);
@@ -433,5 +443,51 @@ export async function runGroup(
       runId,
       error: err.message || 'Unknown execution error',
     });
+
+    // Trim old runs in background
+    trimOldRuns(groupId).catch((e) => console.error('Error trimming runs:', e));
   }
+}
+
+/**
+ * Trims historical runs list for an Action Group, keeping only the 50 most recent runs.
+ */
+async function trimOldRuns(groupId: string): Promise<void> {
+  const adapter = getStorageAdapter();
+  const runsKey = `group:${groupId}:runs`;
+  const limit = 50;
+  try {
+    const count = await adapter.zcard(runsKey);
+    if (count > limit) {
+      // zrevrange fetches highest score (newest) first.
+      // Index 50 to -1 are the 51st and older runs.
+      const runsToRemove = await adapter.zrevrange(runsKey, limit, -1);
+      for (const oldId of runsToRemove) {
+        await adapter.del(`run:${oldId}`);
+      }
+      // Trim sorted set: remove the oldest (ranks 0 to count - limit - 1)
+      await adapter.zremrangebyrank(runsKey, 0, count - limit - 1);
+    }
+  } catch (err) {
+    console.error(`Failed to trim old runs for group ${groupId}:`, err);
+  }
+}
+
+/**
+ * Retrieves the historical runs list for an Action Group, excluding detailed step results for speed.
+ */
+export async function getGroupRuns(groupId: string): Promise<any[]> {
+  const adapter = getStorageAdapter();
+  const runsKey = `group:${groupId}:runs`;
+  const runIds = await adapter.zrevrange(runsKey, 0, -1);
+
+  const runsList = [];
+  for (const runId of runIds) {
+    const run = await getRunById(runId);
+    if (run) {
+      const { results, ...summary } = run;
+      runsList.push(summary);
+    }
+  }
+  return runsList;
 }

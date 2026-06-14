@@ -212,23 +212,63 @@ export function RunConfigModal({ isOpen, bucketId, groupId, onClose }: RunConfig
               />
             </div>
 
-            {/* Data Store Toggle */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '4px' }}>
-              <input
-                type="checkbox"
-                id="use-datastore-checkbox"
-                checked={useDataStore}
-                onChange={(e) => setUseDataStore(e.target.checked)}
-                style={{ cursor: 'pointer' }}
-              />
-              <label htmlFor="use-datastore-checkbox" style={{ fontSize: '13px', fontWeight: 500, color: 'var(--text-primary)', cursor: 'pointer' }}>
+            {/* Data Store Toggle (Clean Switcher) */}
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: '4px', padding: '4px 0' }}>
+              <span style={{ fontSize: '13px', fontWeight: 500, color: 'var(--text-primary)' }}>
                 Drive iterations from a Data Store
+              </span>
+              <label style={{ position: 'relative', display: 'inline-block', width: '36px', height: '20px', flexShrink: 0, cursor: 'pointer' }}>
+                <input
+                  type="checkbox"
+                  checked={useDataStore}
+                  onChange={(e) => setUseDataStore(e.target.checked)}
+                  style={{ opacity: 0, width: 0, height: 0 }}
+                />
+                <span style={{
+                  position: 'absolute',
+                  top: 0,
+                  left: 0,
+                  right: 0,
+                  bottom: 0,
+                  backgroundColor: useDataStore ? 'var(--accent-primary)' : 'var(--bg-hover)',
+                  transition: 'all 0.2s ease',
+                  borderRadius: '20px',
+                  border: '1px solid var(--border-primary)',
+                }}>
+                  <span style={{
+                    position: 'absolute',
+                    height: '12px',
+                    width: '12px',
+                    left: useDataStore ? '20px' : '3px',
+                    bottom: '3px',
+                    backgroundColor: useDataStore ? '#ffffff' : 'var(--text-secondary)',
+                    transition: 'all 0.2s ease',
+                    borderRadius: '50%',
+                  }} />
+                </span>
               </label>
             </div>
 
             {/* Data Store File Upload */}
             {useDataStore && (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', animation: 'fadeIn 150ms ease-out' }}>
+                <div style={{
+                  fontSize: '11px',
+                  lineHeight: '1.4',
+                  color: 'var(--text-secondary)',
+                  backgroundColor: 'var(--bg-secondary)',
+                  border: '1px solid var(--border-primary)',
+                  borderRadius: 'var(--radius-md)',
+                  padding: '8px 12px',
+                  display: 'flex',
+                  gap: '8px'
+                }}>
+                  <span style={{ fontSize: '14px', flexShrink: 0 }}>💡</span>
+                  <div>
+                    <strong>How it works:</strong> Each iteration runs the entire sequence of steps in the action group. The current record's key-values (e.g. <code>{"{{email}}"}</code>) are injected as variables available to all steps.
+                  </div>
+                </div>
+
                 {hasDataStoreAttached ? (
                   <div style={{ padding: '12px', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-primary)', backgroundColor: 'var(--bg-secondary)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                     <div>

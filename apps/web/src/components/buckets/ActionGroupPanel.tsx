@@ -9,6 +9,8 @@ import { useToastStore } from '@/stores/toastStore';
 import { useExecutionStore } from '@/stores/executionStore';
 import { RunDashboard } from '../dashboard/RunDashboard';
 import { RunConfigModal } from './RunConfigModal';
+import { HistoryList } from '../dashboard/HistoryList';
+import { AnalyticsCharts } from '../dashboard/AnalyticsCharts';
 import '../steps/Steps.css';
 
 export function ActionGroupPanel() {
@@ -34,6 +36,12 @@ export function ActionGroupPanel() {
   }>({ type: null });
 
   const [isRunConfigOpen, setIsRunConfigOpen] = useState(false);
+  const [activeTab, setActiveTab] = useState<'steps' | 'history' | 'analytics'>('steps');
+
+  // Reset tab to steps when switching action groups
+  useEffect(() => {
+    setActiveTab('steps');
+  }, [activeGroupId]);
 
   // Clear any active run when switching between action groups
   useEffect(() => {
@@ -90,115 +98,193 @@ export function ActionGroupPanel() {
   const sortedSteps = [...group.steps].sort((a, b) => a.order - b.order);
 
   return (
-    <div className="action-group-panel">
-      {/* Step Timeline Side */}
-      <div className="step-timeline-container">
-        <div className="step-timeline-header">
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
+      {/* Top Navigation Header */}
+      <div
+        className="action-group-header"
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          borderBottom: '1px solid var(--border-primary)',
+          padding: '12px 24px',
+          backgroundColor: 'var(--bg-secondary)',
+          gap: '16px',
+          flexShrink: 0,
+        }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', minWidth: 0 }}>
           <button
             className="btn btn--icon"
-            style={{ marginRight: '8px', padding: '4px' }}
             onClick={() => setActiveGroup(null)}
             title="Back to Bucket Details"
+            style={{ padding: '6px', borderRadius: 'var(--radius-md)' }}
           >
             <ChevronLeftIcon size={16} />
           </button>
-          <div className="step-timeline-title" style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0 }}>
             <LayersIcon size={16} style={{ color: 'var(--accent-primary)', flexShrink: 0 }} />
-            <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{group.name}</span>
-          </div>
-          
-          {sortedSteps.length > 0 && (
-            <button
-              className="btn btn--icon"
-              title="Run Action Group"
-              style={{ color: 'var(--method-get)', marginRight: '6px' }}
-              onClick={() => setIsRunConfigOpen(true)}
+            <span
+              style={{
+                fontSize: '14px',
+                fontWeight: 700,
+                color: 'var(--text-primary)',
+                whiteSpace: 'nowrap',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+              }}
             >
-              <PlayIcon size={16} />
-            </button>
-          )}
-
-          <button
-            className="btn btn--icon"
-            title="Add Test Step"
-            onClick={() => setDialogState({ type: 'createStep' })}
-          >
-            <PlusIcon size={16} />
-          </button>
+              {group.name}
+            </span>
+          </div>
         </div>
 
-        <div className="step-timeline">
-          {sortedSteps.map((step, index) => {
-            const isActive = step.id === activeStepId;
-            const methodClass = `step-node__method badge`;
-            const methodStyle = {
-              backgroundColor: `var(--accent-subtle)`,
-              color: `var(--method-${step.method?.toLowerCase() || 'get'})`,
-              border: `1px solid var(--border-primary)`
-            };
+        {/* Tab Selection */}
+        <div
+          style={{
+            display: 'flex',
+            border: '1px solid var(--border-primary)',
+            borderRadius: 'var(--radius-md)',
+            padding: '2px',
+            backgroundColor: 'var(--bg-primary)',
+          }}
+        >
+          {(['steps', 'history', 'analytics'] as const).map((tab) => (
+            <button
+              key={tab}
+              onClick={() => setActiveTab(tab)}
+              style={{
+                padding: '6px 16px',
+                fontSize: '12px',
+                fontWeight: 600,
+                borderRadius: 'var(--radius-sm)',
+                color: activeTab === tab ? 'var(--text-primary)' : 'var(--text-secondary)',
+                backgroundColor: activeTab === tab ? 'var(--bg-hover)' : 'transparent',
+                transition: 'all var(--transition-fast)',
+              }}
+            >
+              {tab.charAt(0).toUpperCase() + tab.slice(1)}
+            </button>
+          ))}
+        </div>
 
-            return (
-              <div
-                key={step.id}
-                className={`step-node ${isActive ? 'step-node--active' : ''}`}
-                onClick={() => setActiveStep(step.id)}
-              >
-                <div className="step-node__dot">{index + 1}</div>
-                <div className="step-node__card">
-                  <div className="step-node__info">
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                      <span className={methodClass} style={methodStyle}>
-                        {step.method}
-                      </span>
-                      <span className="step-node__name">{step.name}</span>
-                    </div>
-                    <span className="step-node__path">{step.path}</span>
-                  </div>
-
-                  <div className="step-node__actions" onClick={(e) => e.stopPropagation()}>
-                    <button
-                      className="btn btn--icon"
-                      title="Delete Step"
-                      style={{ width: '24px', height: '24px', color: 'var(--method-delete)' }}
-                      onClick={() => setDialogState({ type: 'deleteStep', stepId: step.id })}
-                    >
-                      <TrashIcon size={12} />
-                    </button>
-                  </div>
-                </div>
-              </div>
-            );
-          })}
-
-          {sortedSteps.length === 0 && (
-            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '12px', padding: '32px 16px', textAlign: 'center' }}>
-              <span style={{ color: 'var(--text-secondary)', fontSize: '13px' }}>
-                No steps in this action group yet.
-              </span>
-              <button
-                className="btn btn--primary"
-                onClick={() => setDialogState({ type: 'createStep' })}
-                style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '6px 12px' }}
-              >
-                <PlusIcon size={14} /> Add First Step
-              </button>
-            </div>
+        {/* Header Actions */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          {sortedSteps.length > 0 && activeTab === 'steps' && (
+            <button
+              className="btn btn--primary"
+              title="Run Action Group"
+              style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '6px 14px', fontSize: '12.5px', fontWeight: 600 }}
+              onClick={() => setIsRunConfigOpen(true)}
+            >
+              <PlayIcon size={14} /> Run Flow
+            </button>
           )}
         </div>
       </div>
 
-      {/* Step Editor / Detail Side */}
-      <div style={{ height: '100%', overflow: 'hidden' }}>
-        {activeStepId ? (
-          <StepEditor bucketId={bucket.id} groupId={group.id} stepId={activeStepId} />
-        ) : (
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', padding: '24px' }}>
-            <EmptyState
-              icon={<LayersIcon size={48} style={{ color: 'var(--text-tertiary)' }} />}
-              title={sortedSteps.length === 0 ? "Add a test step to begin" : "No step selected"}
-              description={sortedSteps.length === 0 ? "This action group is empty. Use the 'Add First Step' button in the timeline to create your first API request step." : "Click on any step in the timeline or click the '+' button to add a new request step."}
-            />
+      {/* Workspace Body */}
+      <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
+        {activeTab === 'steps' && (
+          <div className="action-group-panel" style={{ flex: 1, minHeight: 0 }}>
+            {/* Step Timeline Side */}
+            <div className="step-timeline-container" style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
+              <div className="step-timeline-header" style={{ justifyContent: 'space-between', padding: '12px 16px', borderBottom: '1px solid var(--border-secondary)', flexShrink: 0 }}>
+                <span style={{ fontSize: '11px', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-tertiary)' }}>
+                  Steps List ({sortedSteps.length})
+                </span>
+                <button
+                  className="btn btn--icon"
+                  title="Add Test Step"
+                  onClick={() => setDialogState({ type: 'createStep' })}
+                >
+                  <PlusIcon size={14} />
+                </button>
+              </div>
+
+              <div className="step-timeline" style={{ flex: 1, overflowY: 'auto' }}>
+                {sortedSteps.map((step, index) => {
+                  const isActive = step.id === activeStepId;
+                  const methodClass = `step-node__method badge`;
+                  const methodStyle = {
+                    backgroundColor: `var(--accent-subtle)`,
+                    color: `var(--method-${step.method?.toLowerCase() || 'get'})`,
+                    border: `1px solid var(--border-primary)`
+                  };
+
+                  return (
+                    <div
+                      key={step.id}
+                      className={`step-node ${isActive ? 'step-node--active' : ''}`}
+                      onClick={() => setActiveStep(step.id)}
+                    >
+                      <div className="step-node__dot">{index + 1}</div>
+                      <div className="step-node__card">
+                        <div className="step-node__info">
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <span className={methodClass} style={methodStyle}>
+                              {step.method}
+                            </span>
+                            <span className="step-node__name">{step.name}</span>
+                          </div>
+                          <span className="step-node__path">{step.path}</span>
+                        </div>
+
+                        <div className="step-node__actions" onClick={(e) => e.stopPropagation()}>
+                          <button
+                            className="btn btn--icon"
+                            title="Delete Step"
+                            style={{ width: '24px', height: '24px', color: 'var(--method-delete)' }}
+                            onClick={() => setDialogState({ type: 'deleteStep', stepId: step.id })}
+                          >
+                            <TrashIcon size={12} />
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+
+                {sortedSteps.length === 0 && (
+                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '12px', padding: '32px 16px', textAlign: 'center' }}>
+                    <span style={{ color: 'var(--text-secondary)', fontSize: '13px' }}>
+                      No steps in this action group yet.
+                    </span>
+                    <button
+                      className="btn btn--primary"
+                      onClick={() => setDialogState({ type: 'createStep' })}
+                      style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '6px 12px' }}
+                    >
+                      <PlusIcon size={14} /> Add First Step
+                    </button>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Step Editor / Detail Side */}
+            <div style={{ height: '100%', overflow: 'hidden' }}>
+              {activeStepId ? (
+                <StepEditor bucketId={bucket.id} groupId={group.id} stepId={activeStepId} />
+              ) : (
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', padding: '24px' }}>
+                  <EmptyState
+                    icon={<LayersIcon size={48} style={{ color: 'var(--text-tertiary)' }} />}
+                    title={sortedSteps.length === 0 ? "Add a test step to begin" : "No step selected"}
+                    description={sortedSteps.length === 0 ? "This action group is empty. Use the 'Add First Step' button in the timeline to create your first API request step." : "Click on any step in the timeline or click the '+' button to add a new request step."}
+                  />
+                </div>
+              )}
+            </div>
           </div>
+        )}
+
+        {activeTab === 'history' && (
+          <HistoryList groupId={group.id} />
+        )}
+
+        {activeTab === 'analytics' && (
+          <AnalyticsCharts groupId={group.id} />
         )}
       </div>
 

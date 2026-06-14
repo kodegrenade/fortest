@@ -5,7 +5,7 @@ import { StepResultCard } from './StepResultCard';
 import { LayersIcon, XIcon, ClockIcon, CheckCircleIcon } from '@/components/common/Icons';
 
 export function RunDashboard() {
-  const { activeRun, selectedStepId, isRunning, error, clearRun } = useExecutionStore();
+  const { activeRun, selectedStepId, selectedIteration, isRunning, error, clearRun } = useExecutionStore();
   const [secondsElapsed, setSecondsElapsed] = useState(0);
 
   // Timer for active runs
@@ -45,7 +45,9 @@ export function RunDashboard() {
   const failedSteps = results.filter((r) => r.status >= 400 || r.error || r.assertions?.some((a) => !a.passed)).length;
   const completedSteps = results.filter((r) => r.status > 0 && r.status < 400 && !r.error && !r.assertions?.some((a) => !a.passed)).length;
   
-  const selectedResult = results.find((r) => r.stepId === selectedStepId);
+  const selectedResult = results.find(
+    (r) => r.stepId === selectedStepId && (selectedIteration ? r.iteration === selectedIteration : r.iteration === 1)
+  );
 
   const getStatusLabel = () => {
     if (activeRun.status === 'running') return 'RUNNING';
