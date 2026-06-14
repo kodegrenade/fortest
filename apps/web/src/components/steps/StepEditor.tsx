@@ -3,6 +3,7 @@ import { useBucketStore } from '@/stores/bucketStore';
 import { TrashIcon, PlusIcon } from '@/components/common/Icons';
 import type { KeyValuePair, RequestBody, AuthConfig, ExtractionRule, Assertion } from '@fortest/types';
 import './Steps.css';
+import { VariableInput } from './VariableInput';
 
 interface StepEditorProps {
   bucketId: string;
@@ -114,6 +115,11 @@ export function StepEditor({ bucketId, groupId, stepId }: StepEditorProps) {
   const bucket = buckets.find((b) => b.id === bucketId);
   const group = bucket?.actionGroups.find((g) => g.id === groupId);
   const step = group?.steps.find((s) => s.id === stepId);
+
+  // Compute preceding steps for variable data-chaining autocomplete
+  const precedingSteps = group && step
+    ? group.steps.filter((s) => s.order < step.order).sort((a, b) => a.order - b.order)
+    : [];
 
   const [activeTab, setActiveTab] = useState<TabType>('headers');
   const [saveStatus, setSaveStatus] = useState<'saved' | 'saving' | null>('saved');
@@ -365,14 +371,15 @@ export function StepEditor({ bucketId, groupId, stepId }: StepEditorProps) {
               onBlur={() => saveStepData({ name })}
               placeholder="Step Name"
             />
-            <input
+            <VariableInput
               type="text"
-              className="input"
               style={{ fontFamily: 'var(--font-mono)', fontSize: '11px', padding: '4px 8px' }}
               value={path}
-              onChange={(e) => setPath(e.target.value)}
+              onChange={setPath}
               onBlur={() => saveStepData({ path })}
               placeholder="/endpoint/path"
+              variables={bucket.variables || []}
+              precedingSteps={precedingSteps}
             />
           </div>
         </div>
@@ -422,7 +429,7 @@ export function StepEditor({ bucketId, groupId, stepId }: StepEditorProps) {
         {activeTab === 'headers' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
             <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '4px' }}>
-              <button className="btn btn--ghost" style={{ fontSize: '11px', padding: '4px 8px', display: 'flex', alignItems: 'center', gap: '4px' }} onClick={handleAddHeader}>
+              <button className="btn btn--ghost" title="Add custom HTTP header" style={{ fontSize: '11px', padding: '4px 8px', display: 'flex', alignItems: 'center', gap: '4px' }} onClick={handleAddHeader}>
                 <PlusIcon size={12} /> Add Header
               </button>
             </div>
@@ -447,16 +454,17 @@ export function StepEditor({ bucketId, groupId, stepId }: StepEditorProps) {
                   onChange={(e) => handleHeaderChange(header.id, 'key', e.target.value)}
                   onBlur={() => saveStepData({ headers })}
                 />
-                <input
+                <VariableInput
                   type="text"
-                  className="input"
                   placeholder="Value"
                   list="popular-header-values"
                   value={header.value}
-                  onChange={(e) => handleHeaderChange(header.id, 'value', e.target.value)}
+                  onChange={(val) => handleHeaderChange(header.id, 'value', val)}
                   onBlur={() => saveStepData({ headers })}
+                  variables={bucket.variables || []}
+                  precedingSteps={precedingSteps}
                 />
-                <button className="btn btn--icon" onClick={() => handleRemoveHeader(header.id)}>
+                <button className="btn btn--icon" title="Remove header" onClick={() => handleRemoveHeader(header.id)}>
                   <TrashIcon size={14} />
                 </button>
               </div>
@@ -483,7 +491,7 @@ export function StepEditor({ bucketId, groupId, stepId }: StepEditorProps) {
         {activeTab === 'params' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
             <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '4px' }}>
-              <button className="btn btn--ghost" style={{ fontSize: '11px', padding: '4px 8px', display: 'flex', alignItems: 'center', gap: '4px' }} onClick={handleAddParam}>
+              <button className="btn btn--ghost" title="Add query parameter" style={{ fontSize: '11px', padding: '4px 8px', display: 'flex', alignItems: 'center', gap: '4px' }} onClick={handleAddParam}>
                 <PlusIcon size={12} /> Add Parameter
               </button>
             </div>
@@ -507,15 +515,16 @@ export function StepEditor({ bucketId, groupId, stepId }: StepEditorProps) {
                   onChange={(e) => handleParamChange(param.id, 'key', e.target.value)}
                   onBlur={() => saveStepData({ params })}
                 />
-                <input
+                <VariableInput
                   type="text"
-                  className="input"
                   placeholder="Value"
                   value={param.value}
-                  onChange={(e) => handleParamChange(param.id, 'value', e.target.value)}
+                  onChange={(val) => handleParamChange(param.id, 'value', val)}
                   onBlur={() => saveStepData({ params })}
+                  variables={bucket.variables || []}
+                  precedingSteps={precedingSteps}
                 />
-                <button className="btn btn--icon" onClick={() => handleRemoveParam(param.id)}>
+                <button className="btn btn--icon" title="Remove query parameter" onClick={() => handleRemoveParam(param.id)}>
                   <TrashIcon size={14} />
                 </button>
               </div>
@@ -562,8 +571,8 @@ export function StepEditor({ bucketId, groupId, stepId }: StepEditorProps) {
             {/* Textarea for raw/JSON/XML types */}
             {(body.type === 'json' || body.type === 'xml' || body.type === 'raw') && (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                <textarea
-                  className="input"
+                <VariableInput
+                  type="textarea"
                   style={{
                     fontFamily: 'var(--font-mono)',
                     minHeight: '200px',
@@ -580,8 +589,10 @@ export function StepEditor({ bucketId, groupId, stepId }: StepEditorProps) {
                       : 'Body Content'
                   }
                   value={body.content}
-                  onChange={(e) => setBody({ ...body, content: e.target.value })}
+                  onChange={(val) => setBody({ ...body, content: val })}
                   onBlur={() => saveStepData({ body })}
+                  variables={bucket.variables || []}
+                  precedingSteps={precedingSteps}
                 />
                 
                 {/* Validation & Beautify Bar */}
@@ -602,6 +613,7 @@ export function StepEditor({ bucketId, groupId, stepId }: StepEditorProps) {
                       <button
                         type="button"
                         className="btn btn--ghost"
+                        title="Beautify and format JSON body content"
                         style={{ fontSize: '10px', padding: '2px 6px' }}
                         onClick={handleBeautifyJson}
                       >
@@ -619,6 +631,7 @@ export function StepEditor({ bucketId, groupId, stepId }: StepEditorProps) {
                 <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '4px' }}>
                   <button
                     className="btn btn--ghost"
+                    title="Add request body parameter"
                     style={{ fontSize: '11px', padding: '4px 8px', display: 'flex', alignItems: 'center', gap: '4px' }}
                     onClick={handleAddBodyKeyValue}
                   >
@@ -649,15 +662,16 @@ export function StepEditor({ bucketId, groupId, stepId }: StepEditorProps) {
                       onChange={(e) => handleBodyKeyValueChange(kv.id, 'key', e.target.value)}
                       onBlur={() => saveStepData({ body })}
                     />
-                    <input
+                    <VariableInput
                       type="text"
-                      className="input"
                       placeholder="Value"
                       value={kv.value}
-                      onChange={(e) => handleBodyKeyValueChange(kv.id, 'value', e.target.value)}
+                      onChange={(val) => handleBodyKeyValueChange(kv.id, 'value', val)}
                       onBlur={() => saveStepData({ body })}
+                      variables={bucket.variables || []}
+                      precedingSteps={precedingSteps}
                     />
-                    <button className="btn btn--icon" onClick={() => handleRemoveBodyKeyValue(kv.id)}>
+                    <button className="btn btn--icon" title="Remove body parameter" onClick={() => handleRemoveBodyKeyValue(kv.id)}>
                       <TrashIcon size={14} />
                     </button>
                   </div>
@@ -806,50 +820,79 @@ export function StepEditor({ bucketId, groupId, stepId }: StepEditorProps) {
 
         {/* Extractions Tab */}
         {activeTab === 'extractions' && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-            <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '4px' }}>
-              <button className="btn btn--ghost" style={{ fontSize: '11px', padding: '4px 8px', display: 'flex', alignItems: 'center', gap: '4px' }} onClick={handleAddExtraction}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+            <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+              <button className="btn btn--ghost" title="Add extraction rule to extract variables from response" style={{ fontSize: '11px', padding: '4px 8px', display: 'flex', alignItems: 'center', gap: '4px' }} onClick={handleAddExtraction}>
                 <PlusIcon size={12} /> Add Extraction Rule
               </button>
             </div>
             {extractions.map((extraction) => (
-              <div key={extraction.id} className="key-value-row">
-                <input
-                  type="text"
-                  className="input"
-                  style={{ flex: 1, fontFamily: 'var(--font-mono)' }}
-                  placeholder="Variable Name (e.g. token)"
-                  value={extraction.variableName}
-                  onChange={(e) => handleExtractionChange(extraction.id, 'variableName', e.target.value)}
-                  onBlur={() => saveStepData({ extractions })}
-                />
-                <select
-                  className="input"
-                  style={{ width: '100px', flex: 'none' }}
-                  value={extraction.source}
-                  onChange={(e) => {
-                    const updated = extractions.map((ex) => (ex.id === extraction.id ? { ...ex, source: e.target.value as any } : ex));
-                    setExtractions(updated);
-                    saveStepData({ extractions: updated });
-                  }}
-                >
-                  <option value="body">Body</option>
-                  <option value="header">Header</option>
-                  <option value="status">Status</option>
-                </select>
-                <input
-                  type="text"
-                  className="input"
-                  style={{ flex: 2, fontFamily: 'var(--font-mono)' }}
-                  placeholder={extraction.source === 'body' ? 'JSON Path / selector (e.g. data.token)' : 'Header Name (e.g. Authorization)'}
-                  value={extraction.selector}
-                  onChange={(e) => handleExtractionChange(extraction.id, 'selector', e.target.value)}
-                  onBlur={() => saveStepData({ extractions })}
-                  disabled={extraction.source === 'status'}
-                />
-                <button className="btn btn--icon" onClick={() => handleRemoveExtraction(extraction.id)}>
-                  <TrashIcon size={14} />
-                </button>
+              <div key={extraction.id} className="extraction-card">
+                <div className="extraction-card__header">
+                  <div className="extraction-card__title">
+                    <span className={`badge badge--${extraction.source}`}>
+                      {extraction.source}
+                    </span>
+                    {extraction.variableName ? (
+                      <code style={{ fontSize: '10px', color: 'var(--accent-hover)' }}>{`{{steps.${step.name}.${extraction.variableName}}}`}</code>
+                    ) : (
+                      <span style={{ fontStyle: 'italic', fontSize: '11px', color: 'var(--text-tertiary)' }}>Unnamed variable</span>
+                    )}
+                  </div>
+                  <button className="btn btn--icon" title="Remove extraction rule" onClick={() => handleRemoveExtraction(extraction.id)}>
+                    <TrashIcon size={14} />
+                  </button>
+                </div>
+                <div className="extraction-card__body">
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                    <label style={{ fontSize: '10px', color: 'var(--text-secondary)', fontWeight: 500 }}>Variable Name</label>
+                    <input
+                      type="text"
+                      className="input"
+                      style={{ fontFamily: 'var(--font-mono)', fontSize: '12px' }}
+                      placeholder="e.g. authToken"
+                      value={extraction.variableName}
+                      onChange={(e) => handleExtractionChange(extraction.id, 'variableName', e.target.value)}
+                      onBlur={() => saveStepData({ extractions })}
+                    />
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                    <label style={{ fontSize: '10px', color: 'var(--text-secondary)', fontWeight: 500 }}>Source</label>
+                    <select
+                      className="input"
+                      style={{ fontSize: '12px' }}
+                      value={extraction.source}
+                      onChange={(e) => {
+                        const updated = extractions.map((ex) => (ex.id === extraction.id ? { ...ex, source: e.target.value as any } : ex));
+                        setExtractions(updated);
+                        saveStepData({ extractions: updated });
+                      }}
+                    >
+                      <option value="body">Response Body (JSON)</option>
+                      <option value="header">Response Header</option>
+                      <option value="status">Response Status Code</option>
+                    </select>
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', flex: 2 }}>
+                    <label style={{ fontSize: '10px', color: 'var(--text-secondary)', fontWeight: 500 }}>Path / Key</label>
+                    <input
+                      type="text"
+                      className="input"
+                      style={{ fontFamily: 'var(--font-mono)', fontSize: '12px' }}
+                      placeholder={
+                        extraction.source === 'body'
+                          ? 'JSON dot-notation path (e.g. data.token)'
+                          : extraction.source === 'header'
+                          ? 'Header key (e.g. Content-Type)'
+                          : 'N/A (extracts the status code)'
+                      }
+                      value={extraction.selector}
+                      onChange={(e) => handleExtractionChange(extraction.id, 'selector', e.target.value)}
+                      onBlur={() => saveStepData({ extractions })}
+                      disabled={extraction.source === 'status'}
+                    />
+                  </div>
+                </div>
               </div>
             ))}
             {extractions.length === 0 && (
@@ -862,76 +905,102 @@ export function StepEditor({ bucketId, groupId, stepId }: StepEditorProps) {
 
         {/* Assertions Tab */}
         {activeTab === 'assertions' && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-            <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '4px' }}>
-              <button className="btn btn--ghost" style={{ fontSize: '11px', padding: '4px 8px', display: 'flex', alignItems: 'center', gap: '4px' }} onClick={handleAddAssertion}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+            <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+              <button className="btn btn--ghost" title="Add test assertion to validate response" style={{ fontSize: '11px', padding: '4px 8px', display: 'flex', alignItems: 'center', gap: '4px' }} onClick={handleAddAssertion}>
                 <PlusIcon size={12} /> Add Assertion
               </button>
             </div>
             {assertions.map((assertion) => (
-              <div key={assertion.id} className="key-value-row">
-                <select
-                  className="input"
-                  style={{ width: '130px', flex: 'none' }}
-                  value={assertion.target}
-                  onChange={(e) => {
-                    const updated = assertions.map((a) => (a.id === assertion.id ? { ...a, target: e.target.value as any } : a));
-                    setAssertions(updated);
-                    saveStepData({ assertions: updated });
-                  }}
-                >
-                  <option value="status">Status Code</option>
-                  <option value="body">Response Body</option>
-                  <option value="header">Response Header</option>
-                  <option value="response_time">Response Time (ms)</option>
-                </select>
+              <div key={assertion.id} className="assertion-card">
+                <div className="assertion-card__header">
+                  <div className="assertion-card__title">
+                    <span className="badge badge--extraction">
+                      Assert: {assertion.target}
+                    </span>
+                    <span style={{ fontSize: '10px', color: 'var(--text-secondary)', fontFamily: 'var(--font-mono)' }}>
+                      {assertion.operator}
+                    </span>
+                  </div>
+                  <button className="btn btn--icon" title="Remove assertion" onClick={() => handleRemoveAssertion(assertion.id)}>
+                    <TrashIcon size={14} />
+                  </button>
+                </div>
+                <div className="assertion-card__body">
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                    <label style={{ fontSize: '10px', color: 'var(--text-secondary)', fontWeight: 500 }}>Target</label>
+                    <select
+                      className="input"
+                      style={{ fontSize: '12px' }}
+                      value={assertion.target}
+                      onChange={(e) => {
+                        const updated = assertions.map((a) => (a.id === assertion.id ? { ...a, target: e.target.value as any } : a));
+                        setAssertions(updated);
+                        saveStepData({ assertions: updated });
+                      }}
+                    >
+                      <option value="status">Status Code</option>
+                      <option value="body">Response Body (JSON)</option>
+                      <option value="header">Response Header</option>
+                      <option value="response_time">Response Time (ms)</option>
+                    </select>
+                  </div>
 
-                <input
-                  type="text"
-                  className="input"
-                  style={{ flex: 1, fontFamily: 'var(--font-mono)' }}
-                  placeholder={assertion.target === 'body' ? 'JSON Path (e.g. user.id)' : assertion.target === 'header' ? 'Header Name' : 'N/A'}
-                  value={assertion.selector}
-                  onChange={(e) => handleAssertionChange(assertion.id, 'selector', e.target.value)}
-                  onBlur={() => saveStepData({ assertions })}
-                  disabled={assertion.target === 'status' || assertion.target === 'response_time'}
-                />
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', flex: 1.5 }}>
+                    <label style={{ fontSize: '10px', color: 'var(--text-secondary)', fontWeight: 500 }}>Property Path</label>
+                    <input
+                      type="text"
+                      className="input"
+                      style={{ fontFamily: 'var(--font-mono)', fontSize: '12px' }}
+                      placeholder={assertion.target === 'body' ? 'e.g. data.id or user.name' : assertion.target === 'header' ? 'e.g. Content-Type' : 'N/A'}
+                      value={assertion.selector}
+                      onChange={(e) => handleAssertionChange(assertion.id, 'selector', e.target.value)}
+                      onBlur={() => saveStepData({ assertions })}
+                      disabled={assertion.target === 'status' || assertion.target === 'response_time'}
+                    />
+                  </div>
 
-                <select
-                  className="input"
-                  style={{ width: '130px', flex: 'none' }}
-                  value={assertion.operator}
-                  onChange={(e) => {
-                    const updated = assertions.map((a) => (a.id === assertion.id ? { ...a, operator: e.target.value as any } : a));
-                    setAssertions(updated);
-                    saveStepData({ assertions: updated });
-                  }}
-                >
-                  <option value="equals">Equals</option>
-                  <option value="not_equals">Not Equals</option>
-                  <option value="contains">Contains</option>
-                  <option value="not_contains">Not Contains</option>
-                  <option value="greater_than">Greater Than</option>
-                  <option value="less_than">Less Than</option>
-                  <option value="exists">Exists</option>
-                  <option value="not_exists">Not Exists</option>
-                  <option value="matches_regex">Matches Regex</option>
-                </select>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                    <label style={{ fontSize: '10px', color: 'var(--text-secondary)', fontWeight: 500 }}>Operator</label>
+                    <select
+                      className="input"
+                      style={{ fontSize: '12px' }}
+                      value={assertion.operator}
+                      onChange={(e) => {
+                        const updated = assertions.map((a) => (a.id === assertion.id ? { ...a, operator: e.target.value as any } : a));
+                        setAssertions(updated);
+                        saveStepData({ assertions: updated });
+                      }}
+                    >
+                      <option value="equals">Equals</option>
+                      <option value="not_equals">Not Equals</option>
+                      <option value="contains">Contains</option>
+                      <option value="not_contains">Not Contains</option>
+                      <option value="greater_than">Greater Than</option>
+                      <option value="less_than">Less Than</option>
+                      <option value="exists">Exists</option>
+                      <option value="not_exists">Not Exists</option>
+                      <option value="matches_regex">Matches Regex</option>
+                    </select>
+                  </div>
 
-                <input
-                  type="text"
-                  className="input"
-                  style={{ flex: 1 }}
-                  placeholder="Expected Value"
-                  value={assertion.expected}
-                  onChange={(e) => handleAssertionChange(assertion.id, 'expected', e.target.value)}
-                  onBlur={() => saveStepData({ assertions })}
-                  disabled={assertion.operator === 'exists' || assertion.operator === 'not_exists'}
-                />
-
-                <button className="btn btn--icon" onClick={() => handleRemoveAssertion(assertion.id)}>
-                  <TrashIcon size={14} />
-                </button>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', flex: 1.5 }}>
+                    <label style={{ fontSize: '10px', color: 'var(--text-secondary)', fontWeight: 500 }}>Expected Value</label>
+                    <VariableInput
+                      type="text"
+                      placeholder="e.g. 200 or {{myVar}}"
+                      value={assertion.expected}
+                      onChange={(val) => handleAssertionChange(assertion.id, 'expected', val)}
+                      onBlur={() => saveStepData({ assertions })}
+                      disabled={assertion.operator === 'exists' || assertion.operator === 'not_exists'}
+                      variables={bucket.variables || []}
+                      precedingSteps={precedingSteps}
+                    />
+                  </div>
+                </div>
+                <div className="assertion-card__helper">
+                  💡 {getAssertionHelperText(assertion)}
+                </div>
               </div>
             ))}
             {assertions.length === 0 && (
@@ -945,4 +1014,33 @@ export function StepEditor({ bucketId, groupId, stepId }: StepEditorProps) {
       </div>
     </div>
   );
+}
+
+function getAssertionHelperText(assertion: Assertion): string {
+  const targetMap: Record<string, string> = {
+    status: 'HTTP Status Code',
+    body: 'Response Body',
+    header: 'Response Header',
+    response_time: 'Response Time',
+  };
+  const opMap: Record<string, string> = {
+    equals: 'equals',
+    not_equals: 'does not equal',
+    contains: 'contains',
+    not_contains: 'does not contain',
+    greater_than: 'is greater than',
+    less_than: 'is less than',
+    exists: 'exists',
+    not_exists: 'does not exist',
+    matches_regex: 'matches regex pattern',
+  };
+
+  const target = targetMap[assertion.target] || assertion.target;
+  const operator = opMap[assertion.operator] || assertion.operator;
+  const selectorText = assertion.selector ? ` at path "${assertion.selector}"` : '';
+
+  if (assertion.operator === 'exists' || assertion.operator === 'not_exists') {
+    return `Asserts that ${target}${selectorText} ${operator}.`;
+  }
+  return `Asserts that ${target}${selectorText} ${operator} "${assertion.expected}".`;
 }

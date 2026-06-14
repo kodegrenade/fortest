@@ -1,3 +1,4 @@
+import crypto from 'crypto';
 import { getBucketById } from './bucketService';
 import { getStorageAdapter } from './storage';
 import { interpolate } from '@fortest/utils';
@@ -10,6 +11,7 @@ import type {
   BucketVariable,
   ProxyResponse,
   AuthConfig,
+  ExecutionConfig,
 } from '@fortest/types';
 
 /**
@@ -62,6 +64,7 @@ export async function runGroup(
   bucketId: string,
   groupId: string,
   runId: string,
+  inputConfig: Partial<ExecutionConfig> | undefined,
   emitEvent: (event: any) => void
 ): Promise<void> {
   const bucket = await getBucketById(bucketId);
@@ -74,18 +77,20 @@ export async function runGroup(
     throw new Error(`Action Group not found: ${groupId}`);
   }
 
+  const config: ExecutionConfig = {
+    mode: inputConfig?.mode || (inputConfig?.iterations && inputConfig.iterations > 1 ? 'load' : 'manual'),
+    iterations: inputConfig?.iterations || 1,
+    concurrency: inputConfig?.concurrency || 1,
+    delayBetweenSteps: inputConfig?.delayBetweenSteps || 0,
+    useDataStore: inputConfig?.useDataStore || false,
+  };
+
   const run: ExecutionRun = {
     id: runId,
     bucketId,
     actionGroupId: groupId,
     actionGroupName: group.name,
-    config: {
-      mode: 'manual',
-      iterations: 1,
-      concurrency: 1,
-      delayBetweenSteps: 0,
-      useDataStore: false,
-    },
+    config,
     status: 'running',
     results: [],
     startedAt: new Date().toISOString(),
@@ -97,20 +102,42 @@ export async function runGroup(
   // Give the WebSocket client a moment to connect and subscribe
   await new Promise((resolve) => setTimeout(resolve, 100));
 
-  // Initialize active variables dictionary from bucket
-  const activeVariables: BucketVariable[] = [...(bucket.variables || [])];
-
   emitEvent({
     type: 'run:started',
     runId,
     timestamp: new Date().toISOString(),
     totalSteps: group.steps.length,
-    totalIterations: 1,
+    totalIterations: config.iterations,
   });
 
   const startTime = performance.now();
 
-  try {
+  const totalIterations = config.iterations;
+  const maxConcurrency = Math.min(config.concurrency, totalIterations);
+  const delay = config.delayBetweenSteps;
+
+  const queue: number[] = Array.from({ length: totalIterations }, (_, i) => i + 1);
+
+  const runSingleIteration = async (iterNum: number) => {
+    // 1. Independent variable context for this iteration
+    const iterVariables: BucketVariable[] = [...(bucket.variables || [])];
+
+    // 2. Inject Data Store record if enabled
+    if (config.useDataStore && group.dataStore && group.dataStore.records.length > 0) {
+      const records = group.dataStore.records;
+      const record = records[(iterNum - 1) % records.length];
+      if (record) {
+        for (const [key, val] of Object.entries(record)) {
+          iterVariables.push({
+            id: crypto.randomUUID(),
+            key,
+            value: typeof val === 'object' && val !== null ? JSON.stringify(val) : String(val),
+            enabled: true,
+          });
+        }
+      }
+    }
+
     const sortedSteps = [...group.steps].sort((a, b) => a.order - b.order);
 
     for (const step of sortedSteps) {
@@ -119,26 +146,26 @@ export async function runGroup(
         runId,
         stepId: step.id,
         stepName: step.name,
-        iteration: 1,
+        iteration: iterNum,
       });
 
       // 1. Resolve interpolation context
-      const resPath = interpolate(step.path || '', activeVariables).resolved;
+      const resPath = interpolate(step.path || '', iterVariables).resolved;
       
       // Resolve Query parameters
       const resolvedParams: string[] = [];
       for (const p of step.params || []) {
         if (!p.enabled) continue;
-        const resKey = interpolate(p.key, activeVariables).resolved;
-        const resVal = interpolate(p.value, activeVariables).resolved;
+        const resKey = interpolate(p.key, iterVariables).resolved;
+        const resVal = interpolate(p.value, iterVariables).resolved;
         resolvedParams.push(`${encodeURIComponent(resKey)}=${encodeURIComponent(resVal)}`);
       }
 
       // Add query param auth if applicable
       const activeAuth = step.auth && step.auth.type !== 'none' ? step.auth : bucket.auth;
       if (activeAuth.type === 'api-key' && activeAuth.apiKey && activeAuth.apiKey.addTo === 'query') {
-        const key = interpolate(activeAuth.apiKey.key, activeVariables).resolved;
-        const value = interpolate(activeAuth.apiKey.value, activeVariables).resolved;
+        const key = interpolate(activeAuth.apiKey.key, iterVariables).resolved;
+        const value = interpolate(activeAuth.apiKey.value, iterVariables).resolved;
         resolvedParams.push(`${encodeURIComponent(key)}=${encodeURIComponent(value)}`);
       }
 
@@ -147,7 +174,7 @@ export async function runGroup(
         finalPath += (finalPath.includes('?') ? '&' : '?') + resolvedParams.join('&');
       }
 
-      const resBaseUrl = interpolate(bucket.baseUrl || '', activeVariables).resolved;
+      const resBaseUrl = interpolate(bucket.baseUrl || '', iterVariables).resolved;
       let finalUrl = resBaseUrl;
       if (finalUrl && !finalUrl.endsWith('/') && !finalPath.startsWith('/')) {
         finalUrl += '/';
@@ -164,13 +191,13 @@ export async function runGroup(
       const resolvedHeaders: Record<string, string> = {};
       for (const h of step.headers || []) {
         if (!h.enabled) continue;
-        const resKey = interpolate(h.key, activeVariables).resolved;
-        const resVal = interpolate(h.value, activeVariables).resolved;
+        const resKey = interpolate(h.key, iterVariables).resolved;
+        const resVal = interpolate(h.value, iterVariables).resolved;
         resolvedHeaders[resKey] = resVal;
       }
 
       // Merge auth headers
-      const authHeaders = resolveAuthHeaders(activeAuth, activeVariables);
+      const authHeaders = resolveAuthHeaders(activeAuth, iterVariables);
       Object.assign(resolvedHeaders, authHeaders);
 
       // Default JSON content type if JSON body
@@ -181,123 +208,201 @@ export async function runGroup(
       // 4. Resolve Body Content
       let finalBody: string | undefined = undefined;
       if (step.body && step.body.type !== 'none') {
-        finalBody = interpolate(step.body.content, activeVariables).resolved;
+        finalBody = interpolate(step.body.content, iterVariables).resolved;
       }
 
       // 5. Execute HTTP Request
       const controller = new AbortController();
-      // Default timeout is 10000ms
       const timeoutId = setTimeout(() => controller.abort(), 10000);
       const stepStartTime = performance.now();
 
-      let fetchResponse: Response;
       try {
-        fetchResponse = await fetch(finalUrl, {
+        let fetchResponse: Response;
+        try {
+          fetchResponse = await fetch(finalUrl, {
+            method: step.method,
+            headers: resolvedHeaders,
+            body: finalBody ?? undefined,
+            signal: controller.signal,
+            redirect: 'follow',
+          });
+        } finally {
+          clearTimeout(timeoutId);
+        }
+
+        const stepElapsed = performance.now() - stepStartTime;
+        const responseBody = await fetchResponse.text();
+
+        const responseHeaders: Record<string, string> = {};
+        fetchResponse.headers.forEach((val, key) => {
+          responseHeaders[key] = val;
+        });
+
+        const contentType = responseHeaders['content-type'] ?? 'application/octet-stream';
+
+        const proxyResponse: ProxyResponse = {
+          status: fetchResponse.status,
+          statusText: fetchResponse.statusText,
+          headers: responseHeaders,
+          body: responseBody,
+          size: new TextEncoder().encode(responseBody).byteLength,
+          time: Math.round(stepElapsed),
+          contentType,
+        };
+
+        // 6. Perform Extractions
+        const extractedData: Record<string, any> = {};
+        for (const rule of step.extractions || []) {
+          if (!rule.variableName || !rule.selector) continue;
+          const value = extractValue(proxyResponse, rule.source, rule.selector);
+          extractedData[rule.variableName] = value;
+          // Inject into current iteration variable context for downstream steps
+          iterVariables.push({
+            id: crypto.randomUUID(),
+            key: `steps.${step.name}.${rule.variableName}`,
+            value: value || '',
+            enabled: true,
+          });
+        }
+
+        // 7. Evaluate Assertions
+        const assertionResults = evaluateAssertions(proxyResponse, step.assertions || []);
+
+        // 8. Construct Step Result
+        const stepResult: StepResult = {
+          stepId: step.id,
+          stepName: step.name,
+          iteration: iterNum,
+          status: fetchResponse.status,
+          statusText: fetchResponse.statusText,
+          responseTime: Math.round(stepElapsed),
+          responseSize: proxyResponse.size,
+          responseHeaders,
+          responseBody,
+          contentType,
+          extractedData,
+          assertions: assertionResults,
+          timestamp: new Date().toISOString(),
+          url: finalUrl,
           method: step.method,
-          headers: resolvedHeaders,
-          body: finalBody ?? undefined,
-          signal: controller.signal,
-          redirect: 'follow',
+        };
+
+        run.results.push(stepResult);
+        await saveRun(run);
+
+        emitEvent({
+          type: 'step:completed',
+          runId,
+          stepId: step.id,
+          stepName: step.name,
+          iteration: iterNum,
+          statusCode: fetchResponse.status,
+          responseTime: Math.round(stepElapsed),
+          extractedData,
+          assertions: assertionResults,
+          url: finalUrl,
+          method: step.method,
         });
-      } finally {
-        clearTimeout(timeoutId);
+      } catch (stepErr: any) {
+        const stepElapsed = performance.now() - stepStartTime;
+        const stepResult: StepResult = {
+          stepId: step.id,
+          stepName: step.name,
+          iteration: iterNum,
+          status: 0,
+          statusText: 'Failed',
+          responseTime: Math.round(stepElapsed),
+          responseSize: 0,
+          responseHeaders: {},
+          responseBody: '',
+          contentType: 'text/plain',
+          extractedData: {},
+          assertions: [],
+          error: stepErr.message || 'Unknown network or execution error',
+          timestamp: new Date().toISOString(),
+          url: finalUrl,
+          method: step.method,
+        };
+
+        run.results.push(stepResult);
+        await saveRun(run);
+
+        emitEvent({
+          type: 'step:failed',
+          runId,
+          stepId: step.id,
+          stepName: step.name,
+          iteration: iterNum,
+          error: stepErr.message || 'Unknown network or execution error',
+          responseTime: Math.round(stepElapsed),
+          url: finalUrl,
+          method: step.method,
+        });
+
+        // Break out of steps loop for this iteration
+        return;
       }
 
-      const stepElapsed = performance.now() - stepStartTime;
-      const responseBody = await fetchResponse.text();
-
-      const responseHeaders: Record<string, string> = {};
-      fetchResponse.headers.forEach((val, key) => {
-        responseHeaders[key] = val;
-      });
-
-      const contentType = responseHeaders['content-type'] ?? 'application/octet-stream';
-
-      const proxyResponse: ProxyResponse = {
-        status: fetchResponse.status,
-        statusText: fetchResponse.statusText,
-        headers: responseHeaders,
-        body: responseBody,
-        size: new TextEncoder().encode(responseBody).byteLength,
-        time: Math.round(stepElapsed),
-        contentType,
-      };
-
-      // 6. Perform Extractions
-      const extractedData: Record<string, any> = {};
-      for (const rule of step.extractions || []) {
-        if (!rule.variableName || !rule.selector) continue;
-        const value = extractValue(proxyResponse, rule.source, rule.selector);
-        extractedData[rule.variableName] = value;
-        // Inject into current execution context for downstream steps
-        activeVariables.push({
-          id: crypto.randomUUID(),
-          key: `steps.${step.name}.${rule.variableName}`,
-          value: value || '',
-          enabled: true,
-        });
+      // Delay between steps within one iteration
+      if (delay > 0) {
+        await new Promise((resolve) => setTimeout(resolve, delay));
       }
-
-      // 7. Evaluate Assertions
-      const assertionResults = evaluateAssertions(proxyResponse, step.assertions || []);
-
-      // 8. Construct Step Result
-      const stepResult: StepResult = {
-        stepId: step.id,
-        stepName: step.name,
-        iteration: 1,
-        status: fetchResponse.status,
-        statusText: fetchResponse.statusText,
-        responseTime: Math.round(stepElapsed),
-        responseSize: proxyResponse.size,
-        responseHeaders,
-        responseBody,
-        contentType,
-        extractedData,
-        assertions: assertionResults,
-        timestamp: new Date().toISOString(),
-      };
-
-      run.results.push(stepResult);
-      await saveRun(run);
-
-      emitEvent({
-        type: 'step:completed',
-        runId,
-        stepId: step.id,
-        stepName: step.name,
-        iteration: 1,
-        statusCode: fetchResponse.status,
-        responseTime: Math.round(stepElapsed),
-        extractedData,
-        assertions: assertionResults,
-      });
     }
+  };
 
-    // Run completed successfully
+  const runNextIteration = async (): Promise<void> => {
+    if (queue.length === 0) return;
+    const iterNum = queue.shift()!;
+    try {
+      await runSingleIteration(iterNum);
+    } catch (err) {
+      console.error(`Error executing iteration ${iterNum}:`, err);
+    }
+    await runNextIteration();
+  };
+
+  try {
+    // Spawn maxConcurrency parallel consumer flows
+    const workers: Promise<void>[] = [];
+    for (let w = 0; w < maxConcurrency; w++) {
+      workers.push(runNextIteration());
+    }
+    await Promise.all(workers);
+
+    // After all iterations are complete:
     const duration = performance.now() - startTime;
     run.status = 'completed';
     run.completedAt = new Date().toISOString();
     run.duration = Math.round(duration);
 
-    // Compute simple manual aggregate metrics
+    // Compute aggregate metrics
     const totalRequests = run.results.length;
-    const failed = run.results.filter((r) => r.status >= 400 || r.error || r.assertions.some((a) => !a.passed)).length;
+    const failed = run.results.filter(
+      (r) => r.status >= 400 || r.status === 0 || r.error || r.assertions.some((a) => !a.passed)
+    ).length;
     const completed = totalRequests - failed;
-    const avgLatency = totalRequests > 0 ? run.results.reduce((acc, r) => acc + r.responseTime, 0) / totalRequests : 0;
+
+    const latencies = run.results.map((r) => r.responseTime).sort((a, b) => a - b);
+    const avgLatency = totalRequests > 0 ? latencies.reduce((acc, l) => acc + l, 0) / totalRequests : 0;
+
+    const getPercentile = (sorted: number[], p: number): number => {
+      if (sorted.length === 0) return 0;
+      const idx = Math.ceil((p / 100) * sorted.length) - 1;
+      return sorted[idx] ?? 0;
+    };
 
     run.metrics = {
       totalRequests,
       completed,
       failed,
       avgLatency,
-      minLatency: totalRequests > 0 ? Math.min(...run.results.map((r) => r.responseTime)) : 0,
-      maxLatency: totalRequests > 0 ? Math.max(...run.results.map((r) => r.responseTime)) : 0,
-      p50: avgLatency, // Fallbacks for simple manual runs
-      p95: avgLatency,
-      p99: avgLatency,
+      minLatency: latencies.length > 0 ? latencies[0]! : 0,
+      maxLatency: latencies.length > 0 ? latencies[latencies.length - 1]! : 0,
+      p50: getPercentile(latencies, 50),
+      p95: getPercentile(latencies, 95),
+      p99: getPercentile(latencies, 99),
       throughputPerSec: duration > 0 ? (totalRequests / duration) * 1000 : 0,
-      errorRate: totalRequests > 0 ? (failed / totalRequests) * 10000 : 0, // In basis points or percentage
+      errorRate: totalRequests > 0 ? (failed / totalRequests) * 100 : 0,
       totalDataTransferred: run.results.reduce((acc, r) => acc + r.responseSize, 0),
     };
 
@@ -318,7 +423,6 @@ export async function runGroup(
     const elapsed = performance.now() - startTime;
     console.error(`Execution failed for run ${runId}`, err);
 
-    // If an error stopped execution, append it to the run
     run.status = 'failed';
     run.completedAt = new Date().toISOString();
     run.duration = Math.round(elapsed);

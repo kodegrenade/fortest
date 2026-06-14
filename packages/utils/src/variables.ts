@@ -13,7 +13,7 @@ export function interpolate(
     variables.filter((v) => v.enabled).map((v) => [v.key, v.value]),
   );
 
-  const resolved = template.replace(/\{\{(\s*[\w.-]+\s*)\}\}/g, (_match, rawKey: string) => {
+  const resolved = template.replace(/\{\{\s*([^{}]+?)\s*\}\}/g, (_match, rawKey: string) => {
     const key = rawKey.trim();
     const value = enabledVars.get(key);
     if (value !== undefined) {
@@ -31,7 +31,7 @@ export function interpolate(
  */
 export function extractVariableKeys(template: string): string[] {
   const keys: string[] = [];
-  const regex = /\{\{(\s*[\w.-]+\s*)\}\}/g;
+  const regex = /\{\{\s*([^{}]+?)\s*\}\}/g;
   let match: RegExpExecArray | null;
   while ((match = regex.exec(template)) !== null) {
     const key = match[1]?.trim();

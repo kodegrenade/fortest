@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { ExecutionRun, StepResult } from '@fortest/types';
+import type { ExecutionRun, StepResult, ExecutionConfig } from '@fortest/types';
 
 interface ExecutionState {
   activeRun: ExecutionRun | null;
@@ -8,7 +8,7 @@ interface ExecutionState {
   selectedStepId: string | null; // For displaying detail cards in the UI
 
   // Actions
-  startRun: (bucketId: string, groupId: string) => Promise<string>;
+  startRun: (bucketId: string, groupId: string, config?: ExecutionConfig) => Promise<string>;
   stopRun: () => void;
   selectStep: (stepId: string | null) => void;
   clearRun: () => void;
@@ -34,16 +34,22 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
 
   selectStep: (stepId) => set({ selectedStepId: stepId }),
 
-  clearRun: () => set({ activeRun: null, isRunning: false, error: null, selectedStepId: null }),
+  clearRun: () => {
+    if (wsInstance) {
+      wsInstance.close();
+      wsInstance = null;
+    }
+    set({ activeRun: null, isRunning: false, error: null, selectedStepId: null });
+  },
 
-  startRun: async (bucketId, groupId) => {
+  startRun: async (bucketId, groupId, config) => {
     set({ isRunning: true, error: null, activeRun: null, selectedStepId: null });
     
     try {
       const res = await fetch('/api/runs', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ bucketId, groupId }),
+        body: JSON.stringify({ bucketId, groupId, config }),
       });
 
       if (!res.ok) {
@@ -110,6 +116,8 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
                   extractedData: {},
                   assertions: [],
                   timestamp: new Date().toISOString(),
+                  url: '',
+                  method: 'GET',
                 };
 
                 set({
@@ -144,6 +152,8 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
                   extractedData: message.extractedData,
                   assertions: message.assertions,
                   timestamp: new Date().toISOString(),
+                  url: message.url || '',
+                  method: message.method || 'GET',
                 };
 
                 set({
@@ -167,6 +177,8 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
                   error: message.error,
                   responseTime: message.responseTime || 0,
                   timestamp: new Date().toISOString(),
+                  url: message.url || '',
+                  method: message.method || 'GET',
                 };
 
                 set({

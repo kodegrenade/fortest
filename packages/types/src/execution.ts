@@ -43,6 +43,8 @@ export const StepResultSchema = z.object({
   assertions: z.array(AssertionResultSchema).default([]),
   error: z.string().optional(), // populated if the request itself failed (network error, timeout)
   timestamp: z.string().datetime(),
+  url: z.string().default(''),
+  method: z.string().default('GET'),
 });
 export type StepResult = z.infer<typeof StepResultSchema>;
 

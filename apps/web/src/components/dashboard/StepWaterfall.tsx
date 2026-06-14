@@ -11,15 +11,16 @@ export function StepWaterfall() {
   // Find maximum response time to compute relative bar widths
   const maxResponseTime = Math.max(...results.map((r) => r.responseTime), 1);
 
-  const getStepStatusIcon = (status: number, statusText?: string, error?: string) => {
+  const getStepStatusIcon = (status: number, statusText?: string, error?: string, assertions?: any[]) => {
     if (statusText === 'Executing...') {
       return <div className="spinner" style={{ width: '14px', height: '14px', borderWidth: '1.5px' }}></div>;
     }
+    const hasFailedAssertions = assertions?.some(a => !a.passed);
+    if (error || status >= 400 || status === 0 || hasFailedAssertions) {
+      return <XIcon size={16} style={{ color: 'var(--status-5xx)' }} />;
+    }
     if (status >= 200 && status < 300) {
       return <CheckCircleIcon size={16} style={{ color: 'var(--status-2xx)' }} />;
-    }
-    if (error || status >= 400 || (results.some(r => r.assertions?.some(a => !a.passed)))) {
-      return <XIcon size={16} style={{ color: 'var(--status-5xx)' }} />;
     }
     return <div style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: 'var(--text-tertiary)' }}></div>;
   };
@@ -56,16 +57,20 @@ export function StepWaterfall() {
             >
               {/* Left timeline status icon */}
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: '20px', height: '20px', zIndex: 2 }}>
-                {getStepStatusIcon(res.status, res.statusText, res.error)}
+                {getStepStatusIcon(res.status, res.statusText, res.error, res.assertions)}
               </div>
-
+ 
               {/* Step Info */}
               <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '2px', zIndex: 2, minWidth: 0 }}>
                 <span style={{ fontSize: '13px', fontWeight: 500, color: 'var(--text-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                   {res.stepName}
                 </span>
                 <span style={{ fontSize: '10px', color: 'var(--text-tertiary)' }}>
-                  {isExecuting ? 'Running request...' : res.error ? 'Failed' : `${res.status || 'Done'} · ${res.responseTime}ms`}
+                  {isExecuting 
+                    ? 'Running request...' 
+                    : (res.error || res.status === 0 || res.assertions?.some(a => !a.passed))
+                      ? 'Failed' 
+                      : `${res.status} · ${res.responseTime}ms`}
                 </span>
               </div>
 

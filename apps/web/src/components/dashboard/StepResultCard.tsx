@@ -11,7 +11,8 @@ type TabType = 'overview' | 'headers' | 'body' | 'assertions' | 'extractions';
 export function StepResultCard({ result }: StepResultCardProps) {
   const [activeTab, setActiveTab] = useState<TabType>('overview');
 
-  const getStatusColor = (status: number) => {
+  const getStatusColor = (status: number, statusText?: string) => {
+    if (statusText === 'Executing...') return 'var(--accent-primary)';
     if (status >= 200 && status < 300) return 'var(--status-2xx)';
     if (status >= 300 && status < 400) return 'var(--status-3xx)';
     return 'var(--status-5xx)';
@@ -51,14 +52,18 @@ export function StepResultCard({ result }: StepResultCardProps) {
           <span
             className="badge"
             style={{
-              backgroundColor: `${getStatusColor(result.status)}15`,
-              color: getStatusColor(result.status),
-              border: `1px solid ${getStatusColor(result.status)}30`,
+              backgroundColor: `${getStatusColor(result.status, result.statusText)}15`,
+              color: getStatusColor(result.status, result.statusText),
+              border: `1px solid ${getStatusColor(result.status, result.statusText)}30`,
               fontSize: '12px',
               padding: '4px 8px',
             }}
           >
-            {result.status || 'Failed'} {result.statusText}
+            {result.statusText === 'Executing...' 
+              ? 'Executing...' 
+              : result.status > 0 
+                ? `${result.status} ${result.statusText}` 
+                : result.statusText || 'Failed'}
           </span>
           <span style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>
             {result.responseTime} ms
@@ -111,6 +116,31 @@ export function StepResultCard({ result }: StepResultCardProps) {
               </div>
             )}
             
+            {result.url && (
+              <div style={{ padding: '12px', border: '1px solid var(--border-primary)', borderRadius: 'var(--radius-md)', backgroundColor: 'var(--bg-primary)', display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', fontWeight: 500 }}>Request URL</div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <span
+                    style={{
+                      fontSize: '10px',
+                      fontWeight: 700,
+                      padding: '2px 6px',
+                      borderRadius: 'var(--radius-sm)',
+                      backgroundColor: `var(--method-${(result.method || 'GET').toLowerCase()})`,
+                      color: 'white',
+                      textTransform: 'uppercase',
+                      flexShrink: 0,
+                    }}
+                  >
+                    {result.method || 'GET'}
+                  </span>
+                  <code style={{ fontFamily: 'var(--font-mono)', fontSize: '11px', color: 'var(--text-primary)', wordBreak: 'break-all', display: 'block' }}>
+                    {result.url}
+                  </code>
+                </div>
+              </div>
+            )}
+
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '12px' }}>
               <div style={{ padding: '12px', border: '1px solid var(--border-primary)', borderRadius: 'var(--radius-md)', backgroundColor: 'var(--bg-primary)' }}>
                 <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', marginBottom: '4px' }}>Duration</div>

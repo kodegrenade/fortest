@@ -8,6 +8,7 @@ import { EmptyState } from '@/components/common/EmptyState';
 import { useToastStore } from '@/stores/toastStore';
 import { useExecutionStore } from '@/stores/executionStore';
 import { RunDashboard } from '../dashboard/RunDashboard';
+import { RunConfigModal } from './RunConfigModal';
 import '../steps/Steps.css';
 
 export function ActionGroupPanel() {
@@ -22,7 +23,7 @@ export function ActionGroupPanel() {
     deleteStep,
   } = useBucketStore();
   const { addToast } = useToastStore();
-  const { activeRun, startRun } = useExecutionStore();
+  const { activeRun, clearRun } = useExecutionStore();
 
   const bucket = buckets.find((b) => b.id === activeBucketId);
   const group = bucket?.actionGroups.find((g) => g.id === activeGroupId);
@@ -31,6 +32,15 @@ export function ActionGroupPanel() {
     type: 'createStep' | 'deleteStep' | null;
     stepId?: string;
   }>({ type: null });
+
+  const [isRunConfigOpen, setIsRunConfigOpen] = useState(false);
+
+  // Clear any active run when switching between action groups
+  useEffect(() => {
+    if (activeRun && activeRun.actionGroupId !== activeGroupId) {
+      clearRun();
+    }
+  }, [activeGroupId, activeRun, clearRun]);
 
   // Auto-select the first step if no step is active but steps exist
   useEffect(() => {
@@ -69,15 +79,6 @@ export function ActionGroupPanel() {
     setDialogState({ type: null });
   };
 
-  const handleRunFlow = async () => {
-    try {
-      await startRun(bucket.id, group.id);
-      addToast('Execution run initiated successfully', 'success');
-    } catch (err: any) {
-      addToast(err.message || 'Failed to start execution run', 'error');
-    }
-  };
-
   if (activeRun) {
     return (
       <div style={{ display: 'flex', flexDirection: 'column', height: '100%', padding: '24px', overflow: 'hidden', backgroundColor: 'var(--bg-primary)' }}>
@@ -111,7 +112,7 @@ export function ActionGroupPanel() {
               className="btn btn--icon"
               title="Run Action Group"
               style={{ color: 'var(--method-get)', marginRight: '6px' }}
-              onClick={handleRunFlow}
+              onClick={() => setIsRunConfigOpen(true)}
             >
               <PlayIcon size={16} />
             </button>
@@ -157,6 +158,7 @@ export function ActionGroupPanel() {
                   <div className="step-node__actions" onClick={(e) => e.stopPropagation()}>
                     <button
                       className="btn btn--icon"
+                      title="Delete Step"
                       style={{ width: '24px', height: '24px', color: 'var(--method-delete)' }}
                       onClick={() => setDialogState({ type: 'deleteStep', stepId: step.id })}
                     >
@@ -221,6 +223,15 @@ export function ActionGroupPanel() {
           isDanger={true}
           onConfirm={handleDeleteStepConfirm}
           onCancel={() => setDialogState({ type: null })}
+        />
+      )}
+
+      {isRunConfigOpen && (
+        <RunConfigModal
+          isOpen={true}
+          bucketId={bucket.id}
+          groupId={group.id}
+          onClose={() => setIsRunConfigOpen(false)}
         />
       )}
     </div>

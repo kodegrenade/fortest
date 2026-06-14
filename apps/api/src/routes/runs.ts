@@ -11,7 +11,7 @@ const router: import('express').Router = Router();
  * Initiates an execution run for an Action Group in the background.
  */
 router.post('/', async (req, res) => {
-  const { bucketId, groupId } = req.body;
+  const { bucketId, groupId, config } = req.body;
 
   if (!bucketId || !groupId) {
     const error: ApiError = {
@@ -26,7 +26,7 @@ router.post('/', async (req, res) => {
   const runId = uuidv4();
 
   // Fire execution in background
-  runGroup(bucketId, groupId, runId, (event) => {
+  runGroup(bucketId, groupId, runId, config, (event) => {
     broadcastToRun(runId, event);
   }).catch((err) => {
     console.error(`Fatal background run error for run ${runId}:`, err);
