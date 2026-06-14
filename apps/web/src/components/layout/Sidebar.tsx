@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useSidebarStore } from '@/stores/sidebarStore';
 import { useBucketStore } from '@/stores/bucketStore';
 import {
@@ -56,6 +56,17 @@ export function Sidebar() {
     initialValue?: string;
     initialDescription?: string;
   }>({ type: null });
+
+  useEffect(() => {
+    if (dialogState.type !== null) {
+      document.body.style.overflow = 'hidden';
+    } else {
+      document.body.style.overflow = '';
+    }
+    return () => {
+      document.body.style.overflow = '';
+    };
+  }, [dialogState.type]);
 
   if (!activeBucket) return null;
 

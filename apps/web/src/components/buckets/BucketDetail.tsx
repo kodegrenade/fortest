@@ -9,9 +9,11 @@ import {
   LayersIcon,
   XIcon,
   SaveIcon,
+  ClipboardIcon,
 } from '@/components/common/Icons';
 import { ConfirmDialog } from '@/components/common/ConfirmDialog';
 import { ActionGroupDialog } from '@/components/common/ActionGroupDialog';
+import { PasteVariablesDialog } from '@/components/common/PasteVariablesDialog';
 import type { BucketVariable, AuthConfig } from '@fortest/types';
 import { useToastStore } from '@/stores/toastStore';
 
@@ -48,11 +50,22 @@ export function BucketDetail() {
 
   // Dialog states for action group management
   const [dialogState, setDialogState] = useState<{
-    type: 'createGroup' | 'renameGroup' | 'deleteGroup' | null;
+    type: 'createGroup' | 'renameGroup' | 'deleteGroup' | 'pasteVariables' | null;
     groupId?: string;
     initialValue?: string;
     initialDescription?: string;
   }>({ type: null });
+
+  useEffect(() => {
+    if (dialogState.type !== null) {
+      document.body.style.overflow = 'hidden';
+    } else {
+      document.body.style.overflow = '';
+    }
+    return () => {
+      document.body.style.overflow = '';
+    };
+  }, [dialogState.type]);
 
   if (!bucket) return null;
 
@@ -96,6 +109,18 @@ export function BucketDetail() {
 
   const handleRemoveVariable = (id: string) => {
     setVariables(variables.filter((v) => v.id !== id));
+  };
+
+  const handleBulkAddVariables = (parsedVars: { key: string; value: string; enabled: boolean }[]) => {
+    const newVars: BucketVariable[] = parsedVars.map((v) => ({
+      id: crypto.randomUUID(),
+      key: v.key,
+      value: v.value,
+      enabled: v.enabled,
+    }));
+    setVariables([...variables, ...newVars]);
+    addToast(`Successfully added ${newVars.length} variables. Click "Save Configuration" to persist them.`, 'success');
+    setDialogState({ type: null });
   };
 
   const handleCreateGroupConfirm = async (groupName: string, description: string) => {
@@ -328,14 +353,24 @@ export function BucketDetail() {
             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                 <label style={{ fontWeight: 500, fontSize: '12px', color: 'var(--text-secondary)' }}>Bucket Variables</label>
-                <button
-                  type="button"
-                  className="btn btn--ghost"
-                  style={{ fontSize: '11px', padding: '4px 8px', display: 'flex', alignItems: 'center', gap: '4px' }}
-                  onClick={handleAddVariable}
-                >
-                  <PlusIcon size={12} /> Add Variable
-                </button>
+                <div style={{ display: 'flex', gap: '8px' }}>
+                  <button
+                    type="button"
+                    className="btn btn--ghost"
+                    style={{ fontSize: '11px', padding: '4px 8px', display: 'flex', alignItems: 'center', gap: '4px' }}
+                    onClick={() => setDialogState({ type: 'pasteVariables' })}
+                  >
+                    <ClipboardIcon size={12} /> Bulk Paste
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn--ghost"
+                    style={{ fontSize: '11px', padding: '4px 8px', display: 'flex', alignItems: 'center', gap: '4px' }}
+                    onClick={handleAddVariable}
+                  >
+                    <PlusIcon size={12} /> Add Variable
+                  </button>
+                </div>
               </div>
 
               {variables.length === 0 ? (
@@ -507,6 +542,14 @@ export function BucketDetail() {
           confirmText="Delete"
           isDanger={true}
           onConfirm={handleDeleteGroupConfirm}
+          onCancel={() => setDialogState({ type: null })}
+        />
+      )}
+
+      {dialogState.type === 'pasteVariables' && (
+        <PasteVariablesDialog
+          isOpen={true}
+          onConfirm={handleBulkAddVariables}
           onCancel={() => setDialogState({ type: null })}
         />
       )}
