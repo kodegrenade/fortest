@@ -531,4 +531,122 @@
   line-height: 1.5;
 }
 
+/* --- Import Dialog/Drop-Zone Styles --- */
+.import-modal {
+  max-width: 480px;
+  width: 100%;
+}
+
+.import-drop-zone {
+  border: 2px dashed var(--border-primary);
+  border-radius: var(--radius-lg);
+  padding: 32px 20px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  cursor: pointer;
+  transition: all var(--transition-fast) ease;
+  background-color: var(--bg-primary);
+  text-align: center;
+  position: relative;
+}
+
+.import-drop-zone:hover {
+  border-color: var(--accent-primary);
+  background-color: var(--bg-hover);
+}
+
+.import-drop-zone--dragging {
+  border-color: var(--accent-primary);
+  background-color: var(--accent-subtle);
+  transform: scale(1.02);
+}
+
+.import-drop-zone__title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.import-drop-zone__sub {
+  font-size: 12px;
+  color: var(--text-tertiary);
+}
+
+.import-file-details {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 16px;
+  background-color: var(--bg-primary);
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-md);
+  margin-top: 8px;
+}
+
+.import-file-details__icon {
+  color: var(--accent-primary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.import-file-details__info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
+  text-align: left;
+}
+
+.import-file-details__name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.import-file-details__meta {
+  font-size: 11px;
+  color: var(--text-tertiary);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.import-file-details__badge {
+  background-color: var(--accent-subtle);
+  color: var(--accent-primary);
+  padding: 1px 5px;
+  border-radius: 4px;
+  font-weight: 600;
+  font-size: 10px;
+  text-transform: uppercase;
+}
+
+.import-file-details__clear {
+  background: transparent;
+  border: none;
+  color: var(--text-tertiary);
+  cursor: pointer;
+  padding: 4px;
+  border-radius: var(--radius-sm);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: color var(--transition-fast), background var(--transition-fast);
+}
+
+.import-file-details__clear:hover {
+  color: var(--method-delete);
+  background-color: hsla(0, 70%, 58%, 0.15);
+}
+
+
 

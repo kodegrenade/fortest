@@ -29,33 +29,86 @@ export function DashboardHub() {
 
   const [isFabOpen, setIsFabOpen] = useState(false);
   const [dialogState, setDialogState] = useState<{
-    type: 'createBucket' | 'renameBucket' | 'deleteBucket' | 'exportBucket' | null;
+    type: 'createBucket' | 'renameBucket' | 'deleteBucket' | 'exportBucket' | 'importBucket' | null;
     bucketId?: string;
     initialValue?: string;
     bucketName?: string;
   }>({ type: null });
 
-  const handleFileImportChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [isDragging, setIsDragging] = useState(false);
+  const [isImporting, setIsImporting] = useState(false);
+
+  const validateAndSetFile = (file: File) => {
+    const ext = file.name.split('.').pop()?.toLowerCase();
+    if (ext === 'json' || ext === 'yaml' || ext === 'yml') {
+      setSelectedFile(file);
+    } else {
+      addToast('Unsupported file type. Please upload a .json, .yaml, or .yml file.', 'error');
+    }
+  };
+
+  const handleFileImportChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (!file) return;
+    if (file) {
+      validateAndSetFile(file);
+    }
+  };
+
+  const handleDragEnter = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(true);
+  };
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(true);
+  };
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(false);
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(false);
+
+    const file = e.dataTransfer.files?.[0];
+    if (file) {
+      validateAndSetFile(file);
+    }
+  };
+
+  const handleImportSubmit = async () => {
+    if (!selectedFile) return;
+    setIsImporting(true);
 
     const reader = new FileReader();
     reader.onload = async (event) => {
       const text = event.target?.result as string;
-      const ext = file.name.split('.').pop()?.toLowerCase();
+      const ext = selectedFile.name.split('.').pop()?.toLowerCase();
       const format = ext === 'yaml' || ext === 'yml' ? 'yaml' : 'json';
 
       try {
         await importBucket(text, format);
-        addToast(`Bucket "${file.name}" imported successfully`, 'success');
+        addToast(`Bucket "${selectedFile.name}" imported successfully`, 'success');
+        setDialogState({ type: null });
+        setSelectedFile(null);
       } catch (err: any) {
         addToast(err.message || 'Failed to import bucket', 'error');
-      }
-      if (fileInputRef.current) {
-        fileInputRef.current.value = '';
+      } finally {
+        setIsImporting(false);
+        if (fileInputRef.current) {
+          fileInputRef.current.value = '';
+        }
       }
     };
-    reader.readAsText(file);
+    reader.readAsText(selectedFile);
   };
 
   const handleExportBucket = (bucketId: string, format: 'json' | 'yaml', bucketName: string) => {
@@ -255,7 +308,7 @@ export function DashboardHub() {
           className="dashboard-hub__fab-option dashboard-hub__fab-option--import"
           onClick={() => {
             setIsFabOpen(false);
-            fileInputRef.current?.click();
+            setDialogState({ type: 'importBucket' });
           }}
         >
           <InboxIcon size={20} />
@@ -336,6 +389,90 @@ export function DashboardHub() {
                 onClick={() => handleExportBucket(dialogState.bucketId!, 'json', dialogState.bucketName!)}
               >
                 Export JSON
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {dialogState.type === 'importBucket' && (
+        <div className="modal-overlay" onClick={() => {
+          if (!isImporting) {
+            setDialogState({ type: null });
+            setSelectedFile(null);
+          }
+        }}>
+          <div className="modal-content import-modal" onClick={(e) => e.stopPropagation()}>
+            <h3 className="modal-title">Import Test Bucket</h3>
+            <p style={{ color: 'var(--text-secondary)', marginBottom: '20px', fontSize: '13px', lineHeight: 1.5 }}>
+              Select or drag and drop a test bucket configuration file. Supported formats: JSON (`.json`) or YAML (`.yaml`, `.yml`).
+            </p>
+
+            {!selectedFile ? (
+              <div
+                className={`import-drop-zone ${isDragging ? 'import-drop-zone--dragging' : ''}`}
+                onClick={() => fileInputRef.current?.click()}
+                onDragEnter={handleDragEnter}
+                onDragOver={handleDragOver}
+                onDragLeave={handleDragLeave}
+                onDrop={handleDrop}
+              >
+                <InboxIcon size={36} style={{ color: 'var(--accent-primary)', marginBottom: '4px' }} />
+                <span className="import-drop-zone__title">Drag & drop file here, or click to browse</span>
+                <span className="import-drop-zone__sub">Supports JSON or YAML (max 10MB)</span>
+              </div>
+            ) : (
+              <div className="import-file-details">
+                <div className="import-file-details__icon">
+                  <SaveIcon size={24} />
+                </div>
+                <div className="import-file-details__info">
+                  <span className="import-file-details__name">{selectedFile.name}</span>
+                  <div className="import-file-details__meta">
+                    <span>{(selectedFile.size / 1024).toFixed(1)} KB</span>
+                    <span className="import-file-details__badge">
+                      {selectedFile.name.split('.').pop()?.toLowerCase()}
+                    </span>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  className="import-file-details__clear"
+                  onClick={() => setSelectedFile(null)}
+                  title="Remove file"
+                >
+                  <TrashIcon size={16} />
+                </button>
+              </div>
+            )}
+
+            <div className="modal-actions" style={{ marginTop: '24px' }}>
+              <button
+                type="button"
+                className="btn btn--ghost"
+                onClick={() => {
+                  setDialogState({ type: null });
+                  setSelectedFile(null);
+                }}
+                disabled={isImporting}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="btn btn--primary"
+                onClick={handleImportSubmit}
+                disabled={!selectedFile || isImporting}
+                style={{ display: 'flex', alignItems: 'center', gap: '8px' }}
+              >
+                {isImporting ? (
+                  <>
+                    <div className="spinner" style={{ width: '14px', height: '14px', border: '2px solid rgba(255,255,255,0.3)', borderTopColor: '#fff' }}></div>
+                    Importing...
+                  </>
+                ) : (
+                  'Import Bucket'
+                )}
               </button>
             </div>
           </div>
