@@ -14,6 +14,7 @@ interface BucketState {
   createBucket: (name: string, baseUrl?: string) => Promise<void>;
   updateBucket: (id: string, data: Partial<TestBucket>) => Promise<void>;
   deleteBucket: (id: string) => Promise<void>;
+  importBucket: (content: string, format: 'json' | 'yaml') => Promise<void>;
 
   // Navigation
   setActiveBucket: (id: string | null) => void;
@@ -110,6 +111,29 @@ export const useBucketStore = create<BucketState>((set, get) => ({
       throw new Error(errMsg);
     }
   },
+
+  importBucket: async (content, format) => {
+    set({ isLoading: true, error: null });
+    try {
+      const res = await fetch('/api/buckets/import', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ content, format }),
+      });
+      
+      if (!res.ok) {
+        const errData = await res.json();
+        throw new Error(errData.message || 'Failed to import bucket');
+      }
+      
+      await get().loadBuckets();
+    } catch (err: any) {
+      const errMsg = err.message || 'Failed to import bucket';
+      set({ error: errMsg, isLoading: false });
+      throw new Error(errMsg);
+    }
+  },
+
 
   setActiveBucket: (id) => set({ activeBucketId: id, activeGroupId: null, activeStepId: null }),
   setActiveGroup: (id) => set({ activeGroupId: id, activeStepId: null }),

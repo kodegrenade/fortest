@@ -96,3 +96,10 @@ export async function deleteBucket(id: string): Promise<boolean> {
   await adapter.srem(INDEX_KEY, id);
   return true;
 }
+
+export async function saveBucket(bucket: TestBucket): Promise<void> {
+  const adapter = getStorageAdapter();
+  await adapter.set(getBucketKey(bucket.id), JSON.stringify(bucket));
+  await adapter.sadd(INDEX_KEY, bucket.id);
+}
+

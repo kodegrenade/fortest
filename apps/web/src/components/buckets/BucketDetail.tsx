@@ -8,6 +8,7 @@ import {
   TrashIcon,
   LayersIcon,
   XIcon,
+  SaveIcon,
 } from '@/components/common/Icons';
 import { PromptDialog } from '@/components/common/PromptDialog';
 import { ConfirmDialog } from '@/components/common/ConfirmDialog';
@@ -130,11 +131,22 @@ export function BucketDetail() {
     setDialogState({ type: null });
   };
 
+  const handleExport = (format: 'json' | 'yaml') => {
+    const url = `/api/buckets/${bucket.id}/export?format=${format}`;
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = '';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    addToast(`Exporting "${bucket.name}" as ${format.toUpperCase()}...`, 'info');
+  };
+
   return (
     <div className="bucket-detail">
       
       {/* Header */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px' }}>
         <div>
           <h1 style={{ fontSize: '24px', fontWeight: 700, color: 'var(--text-primary)', marginBottom: '4px' }}>
             {bucket.name}
@@ -142,6 +154,24 @@ export function BucketDetail() {
           <p style={{ color: 'var(--text-secondary)', fontSize: '13px' }}>
             Configure and run sequences of tests for this API service
           </p>
+        </div>
+        <div style={{ display: 'flex', gap: '8px' }}>
+          <button
+            type="button"
+            className="btn btn--secondary"
+            onClick={() => handleExport('yaml')}
+            style={{ padding: '6px 12px', fontSize: '12.5px', display: 'flex', alignItems: 'center', gap: '6px' }}
+          >
+            <SaveIcon size={14} /> Export YAML
+          </button>
+          <button
+            type="button"
+            className="btn btn--secondary"
+            onClick={() => handleExport('json')}
+            style={{ padding: '6px 12px', fontSize: '12.5px', display: 'flex', alignItems: 'center', gap: '6px' }}
+          >
+            <SaveIcon size={14} /> Export JSON
+          </button>
         </div>
       </div>
 

@@ -1,10 +1,12 @@
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { useBucketStore } from '@/stores/bucketStore';
 import {
   BucketIcon,
   PlusIcon,
   EditIcon,
   TrashIcon,
+  InboxIcon,
+  SaveIcon,
 } from '@/components/common/Icons';
 import { PromptDialog } from '@/components/common/PromptDialog';
 import { ConfirmDialog } from '@/components/common/ConfirmDialog';
@@ -18,15 +20,53 @@ export function DashboardHub() {
     updateBucket,
     deleteBucket,
     setActiveBucket,
+    importBucket,
     isLoading,
   } = useBucketStore();
   const { addToast } = useToastStore();
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [dialogState, setDialogState] = useState<{
-    type: 'createBucket' | 'renameBucket' | 'deleteBucket' | null;
+    type: 'createBucket' | 'renameBucket' | 'deleteBucket' | 'exportBucket' | null;
     bucketId?: string;
     initialValue?: string;
+    bucketName?: string;
   }>({ type: null });
+
+  const handleFileImportChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = async (event) => {
+      const text = event.target?.result as string;
+      const ext = file.name.split('.').pop()?.toLowerCase();
+      const format = ext === 'yaml' || ext === 'yml' ? 'yaml' : 'json';
+
+      try {
+        await importBucket(text, format);
+        addToast(`Bucket "${file.name}" imported successfully`, 'success');
+      } catch (err: any) {
+        addToast(err.message || 'Failed to import bucket', 'error');
+      }
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
+    };
+    reader.readAsText(file);
+  };
+
+  const handleExportBucket = (bucketId: string, format: 'json' | 'yaml', bucketName: string) => {
+    const url = `/api/buckets/${bucketId}/export?format=${format}`;
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = '';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    addToast(`Exporting "${bucketName}" as ${format.toUpperCase()}...`, 'info');
+    setDialogState({ type: null });
+  };
 
   const handleCreateBucketConfirm = async (name: string) => {
     try {
@@ -91,6 +131,25 @@ export function DashboardHub() {
           </span>
         </div>
 
+        {/* Import Card */}
+        <div
+          className="bucket-card bucket-card--create"
+          onClick={() => fileInputRef.current?.click()}
+          style={{ borderStyle: 'dashed', borderColor: 'var(--border-primary)' }}
+        >
+          <InboxIcon size={32} style={{ color: 'var(--accent-primary)' }} />
+          <span style={{ fontWeight: 600, fontSize: '14px', color: 'var(--text-secondary)' }}>
+            Import Bucket (JSON/YAML)
+          </span>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".json,.yaml,.yml"
+            onChange={handleFileImportChange}
+            style={{ display: 'none' }}
+          />
+        </div>
+
         {/* Bucket Cards */}
         {buckets.map((bucket) => {
           const groupCount = bucket.actionGroups?.length || 0;
@@ -127,6 +186,19 @@ export function DashboardHub() {
                 </div>
 
                 <div className="bucket-card__actions" onClick={(e) => e.stopPropagation()}>
+                  <button
+                    className="btn btn--icon"
+                    title="Export Bucket"
+                    onClick={() =>
+                      setDialogState({
+                        type: 'exportBucket',
+                        bucketId: bucket.id,
+                        bucketName: bucket.name,
+                      })
+                    }
+                  >
+                    <SaveIcon size={14} />
+                  </button>
                   <button
                     className="btn btn--icon"
                     title="Rename Bucket"
@@ -195,6 +267,40 @@ export function DashboardHub() {
           onConfirm={handleDeleteBucketConfirm}
           onCancel={() => setDialogState({ type: null })}
         />
+      )}
+
+      {dialogState.type === 'exportBucket' && dialogState.bucketId && dialogState.bucketName && (
+        <div className="modal-overlay" onClick={() => setDialogState({ type: null })}>
+          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+            <h3 className="modal-title">Export "{dialogState.bucketName}"</h3>
+            <p style={{ color: 'var(--text-secondary)', marginBottom: '24px', fontSize: '13px', lineHeight: 1.5 }}>
+              Choose a file format to export this test bucket. The exported file will contain the complete bucket state, including variables, action groups, timeline steps, extractions, and test assertions.
+            </p>
+            <div className="modal-actions">
+              <button
+                type="button"
+                className="btn btn--ghost"
+                onClick={() => setDialogState({ type: null })}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="btn btn--secondary"
+                onClick={() => handleExportBucket(dialogState.bucketId!, 'yaml', dialogState.bucketName!)}
+              >
+                Export YAML
+              </button>
+              <button
+                type="button"
+                className="btn btn--primary"
+                onClick={() => handleExportBucket(dialogState.bucketId!, 'json', dialogState.bucketName!)}
+              >
+                Export JSON
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
