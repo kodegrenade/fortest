@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { useBucketStore } from '@/stores/bucketStore';
 import {
   BucketIcon,
@@ -152,6 +152,17 @@ export function DashboardHub() {
   const [isDragging, setIsDragging] = useState(false);
   const [isImporting, setIsImporting] = useState(false);
   const [templateTab, setTemplateTab] = useState<'json' | 'yaml'>('json');
+
+  useEffect(() => {
+    if (dialogState.type !== null) {
+      document.body.style.overflow = 'hidden';
+    } else {
+      document.body.style.overflow = '';
+    }
+    return () => {
+      document.body.style.overflow = '';
+    };
+  }, [dialogState.type]);
 
   const validateAndSetFile = (file: File) => {
     const ext = file.name.split('.').pop()?.toLowerCase();
@@ -494,7 +505,15 @@ export function DashboardHub() {
 
       {dialogState.type === 'exportBucket' && dialogState.bucketId && dialogState.bucketName && (
         <div className="modal-overlay" onClick={() => setDialogState({ type: null })}>
-          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+          <div className="modal-content" onClick={(e) => e.stopPropagation()} style={{ position: 'relative' }}>
+            <button
+              type="button"
+              className="modal-close-btn"
+              onClick={() => setDialogState({ type: null })}
+              title="Close"
+            >
+              <XIcon size={16} />
+            </button>
             <h3 className="modal-title">Export "{dialogState.bucketName}"</h3>
             <p style={{ color: 'var(--text-secondary)', marginBottom: '24px', fontSize: '13px', lineHeight: 1.5 }}>
               Choose a file format to export this test bucket. The exported file will contain the complete bucket state, including variables, action groups, timeline steps, extractions, and test assertions.
@@ -533,7 +552,21 @@ export function DashboardHub() {
             setSelectedFile(null);
           }
         }}>
-          <div className="modal-content import-modal" onClick={(e) => e.stopPropagation()}>
+          <div className="modal-content import-modal" onClick={(e) => e.stopPropagation()} style={{ position: 'relative' }}>
+            <button
+              type="button"
+              className="modal-close-btn"
+              onClick={() => {
+                if (!isImporting) {
+                  setDialogState({ type: null });
+                  setSelectedFile(null);
+                }
+              }}
+              title="Close"
+              disabled={isImporting}
+            >
+              <XIcon size={16} />
+            </button>
             <div className="import-modal__split">
               {/* Left Panel: Upload area */}
               <div className="import-modal__upload-panel">
