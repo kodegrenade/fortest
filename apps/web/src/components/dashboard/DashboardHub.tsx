@@ -10,10 +10,13 @@ import {
   XIcon,
   GridIcon,
   ListIcon,
+  PlayIcon,
 } from '@/components/common/Icons';
 import { PromptDialog } from '@/components/common/PromptDialog';
 import { ConfirmDialog } from '@/components/common/ConfirmDialog';
 import { useToastStore } from '@/stores/toastStore';
+import { useExecutionStore } from '@/stores/executionStore';
+import type { TestBucket } from '@fortest/types';
 const JSON_TEMPLATE = `{
   "name": "Sample Gateway API",
   "baseUrl": "https://api.example.com",
@@ -140,14 +143,16 @@ export function DashboardHub() {
     isLoading,
   } = useBucketStore();
   const { addToast } = useToastStore();
+  const startRun = useExecutionStore((s) => s.startRun);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [isFabOpen, setIsFabOpen] = useState(false);
   const [dialogState, setDialogState] = useState<{
-    type: 'createBucket' | 'renameBucket' | 'deleteBucket' | 'exportBucket' | 'importBucket' | null;
+    type: 'createBucket' | 'renameBucket' | 'deleteBucket' | 'exportBucket' | 'importBucket' | 'runSelector' | null;
     bucketId?: string;
     initialValue?: string;
     bucketName?: string;
+    actionGroups?: { id: string; name: string }[];
   }>({ type: null });
 
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
@@ -276,6 +281,34 @@ export function DashboardHub() {
     setDialogState({ type: null });
   };
 
+  const handleRunBucket = (bucket: TestBucket) => {
+    const groups = bucket.actionGroups || [];
+    if (groups.length === 0) {
+      addToast(`This bucket has no action groups. Create an action group first.`, 'error');
+      return;
+    }
+
+    if (groups.length === 1 && groups[0]) {
+      const firstGroup = groups[0];
+      startRun(bucket.id, firstGroup.id, undefined, firstGroup.name)
+        .then(() => {
+          addToast(`Run for "${firstGroup.name}" started in background`, 'success');
+        })
+        .catch((err) => {
+          addToast(err.message || 'Failed to start background execution', 'error');
+        });
+      return;
+    }
+
+    // Multiple action groups: open selector
+    setDialogState({
+      type: 'runSelector',
+      bucketId: bucket.id,
+      bucketName: bucket.name,
+      actionGroups: groups.map((g) => ({ id: g.id, name: g.name })),
+    });
+  };
+
   const handleCreateBucketConfirm = async (name: string) => {
     try {
       await createBucket(name);
@@ -397,6 +430,14 @@ export function DashboardHub() {
                 <div className="bucket-card__actions" onClick={(e) => e.stopPropagation()}>
                   <button
                     className="btn btn--icon"
+                    title="Run Action Group"
+                    style={{ color: 'var(--accent-primary)' }}
+                    onClick={() => handleRunBucket(bucket)}
+                  >
+                    <PlayIcon size={14} />
+                  </button>
+                  <button
+                    className="btn btn--icon"
                     title="Export Bucket"
                     onClick={() =>
                       setDialogState({
@@ -476,6 +517,14 @@ export function DashboardHub() {
                 </div>
 
                 <div className="bucket-list-item__actions" onClick={(e) => e.stopPropagation()}>
+                  <button
+                    className="btn btn--icon"
+                    title="Run Action Group"
+                    style={{ color: 'var(--accent-primary)' }}
+                    onClick={() => handleRunBucket(bucket)}
+                  >
+                    <PlayIcon size={14} />
+                  </button>
                   <button
                     className="btn btn--icon"
                     title="Export Bucket"
@@ -618,6 +667,63 @@ export function DashboardHub() {
           onConfirm={handleDeleteBucketConfirm}
           onCancel={() => setDialogState({ type: null })}
         />
+      )}
+
+      {dialogState.type === 'runSelector' && dialogState.actionGroups && (
+        <div className="modal-overlay" onClick={() => setDialogState({ type: null })}>
+          <div
+            className="modal-content"
+            onClick={(e) => e.stopPropagation()}
+            style={{ position: 'relative', maxWidth: '400px', width: '100%' }}
+          >
+            <button
+              type="button"
+              className="modal-close-btn"
+              onClick={() => setDialogState({ type: null })}
+              title="Close"
+            >
+              <XIcon size={16} />
+            </button>
+
+            <h3 className="modal-title" style={{ marginBottom: '16px' }}>Run Action Group</h3>
+            <p style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '16px' }}>
+              Select which action group in <strong>{dialogState.bucketName}</strong> you want to execute in the background:
+            </p>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '200px', overflowY: 'auto' }}>
+              {dialogState.actionGroups.map((g) => (
+                <button
+                  key={g.id}
+                  type="button"
+                  className="btn btn--ghost"
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    width: '100%',
+                    padding: '10px 12px',
+                    fontSize: '12px',
+                    textAlign: 'left',
+                    borderRadius: 'var(--radius-md)',
+                  }}
+                  onClick={() => {
+                    startRun(dialogState.bucketId!, g.id, undefined, g.name)
+                      .then(() => {
+                        addToast(`Run for "${g.name}" started in background`, 'success');
+                      })
+                      .catch((err) => {
+                        addToast(err.message || 'Failed to start background execution', 'error');
+                      });
+                    setDialogState({ type: null });
+                  }}
+                >
+                  <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{g.name}</span>
+                  <PlayIcon size={12} style={{ color: 'var(--accent-primary)', flexShrink: 0 }} />
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
       )}
 
       {dialogState.type === 'exportBucket' && dialogState.bucketId && dialogState.bucketName && (

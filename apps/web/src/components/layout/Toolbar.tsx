@@ -1,6 +1,7 @@
 import { useThemeStore } from '@/stores/themeStore';
 import { useBucketStore } from '@/stores/bucketStore';
 import { LogoIcon, SunIcon, MoonIcon, MonitorIcon } from '@/components/common/Icons';
+import { BackgroundJobsIndicator } from './BackgroundJobsIndicator';
 
 const THEME_ICONS = {
   light: SunIcon,
@@ -41,6 +42,7 @@ export function Toolbar() {
       )}
 
       <div className="toolbar__controls" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+        <BackgroundJobsIndicator />
         <select
           value={subTheme}
           onChange={(e) => setSubTheme(e.target.value as any)}
