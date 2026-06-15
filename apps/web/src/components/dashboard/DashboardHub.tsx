@@ -362,6 +362,7 @@ export function DashboardHub() {
                 className={`dashboard-hub__view-btn ${viewMode === 'grid' ? 'dashboard-hub__view-btn--active' : ''}`}
                 onClick={() => handleToggleView('grid')}
                 title="Grid View"
+                aria-label="Grid View"
               >
                 <GridIcon size={16} />
               </button>
@@ -370,6 +371,7 @@ export function DashboardHub() {
                 className={`dashboard-hub__view-btn ${viewMode === 'list' ? 'dashboard-hub__view-btn--active' : ''}`}
                 onClick={() => handleToggleView('list')}
                 title="List View"
+                aria-label="List View"
               >
                 <ListIcon size={16} />
               </button>
@@ -431,6 +433,7 @@ export function DashboardHub() {
                   <button
                     className="btn btn--icon"
                     title="Run Action Group"
+                    aria-label="Run Action Group"
                     style={{ color: 'var(--accent-primary)' }}
                     onClick={() => handleRunBucket(bucket)}
                   >
@@ -439,6 +442,7 @@ export function DashboardHub() {
                   <button
                     className="btn btn--icon"
                     title="Export Bucket"
+                    aria-label="Export Bucket"
                     onClick={() =>
                       setDialogState({
                         type: 'exportBucket',
@@ -452,6 +456,7 @@ export function DashboardHub() {
                   <button
                     className="btn btn--icon"
                     title="Rename Bucket"
+                    aria-label="Rename Bucket"
                     onClick={() =>
                       setDialogState({
                         type: 'renameBucket',
@@ -465,6 +470,7 @@ export function DashboardHub() {
                   <button
                     className="btn btn--icon"
                     title="Delete Bucket"
+                    aria-label="Delete Bucket"
                     style={{ color: 'var(--method-delete)' }}
                     onClick={() =>
                       setDialogState({
@@ -520,6 +526,7 @@ export function DashboardHub() {
                   <button
                     className="btn btn--icon"
                     title="Run Action Group"
+                    aria-label="Run Action Group"
                     style={{ color: 'var(--accent-primary)' }}
                     onClick={() => handleRunBucket(bucket)}
                   >
@@ -528,6 +535,7 @@ export function DashboardHub() {
                   <button
                     className="btn btn--icon"
                     title="Export Bucket"
+                    aria-label="Export Bucket"
                     onClick={() =>
                       setDialogState({
                         type: 'exportBucket',
@@ -541,6 +549,7 @@ export function DashboardHub() {
                   <button
                     className="btn btn--icon"
                     title="Rename Bucket"
+                    aria-label="Rename Bucket"
                     onClick={() =>
                       setDialogState({
                         type: 'renameBucket',
@@ -554,6 +563,7 @@ export function DashboardHub() {
                   <button
                     className="btn btn--icon"
                     title="Delete Bucket"
+                    aria-label="Delete Bucket"
                     style={{ color: 'var(--method-delete)' }}
                     onClick={() =>
                       setDialogState({
@@ -606,6 +616,8 @@ export function DashboardHub() {
             setIsFabOpen(false);
             setDialogState({ type: 'createBucket' });
           }}
+          title="Create Bucket"
+          aria-label="Create Bucket"
         >
           <PlusIcon size={20} />
           <span className="dashboard-hub__fab-label">Create Bucket</span>
@@ -618,6 +630,8 @@ export function DashboardHub() {
             setIsFabOpen(false);
             setDialogState({ type: 'importBucket' });
           }}
+          title="Import Bucket"
+          aria-label="Import Bucket"
         >
           <InboxIcon size={20} />
           <span className="dashboard-hub__fab-label">Import Bucket</span>
@@ -628,6 +642,7 @@ export function DashboardHub() {
           className={`dashboard-hub__fab-trigger ${isFabOpen ? 'dashboard-hub__fab-trigger--open' : ''}`}
           onClick={() => setIsFabOpen(!isFabOpen)}
           title={isFabOpen ? 'Close Menu' : 'Add or Import Bucket'}
+          aria-label={isFabOpen ? 'Close Menu' : 'Add or Import Bucket'}
         >
           {isFabOpen ? <XIcon size={24} /> : <BucketIcon size={24} />}
         </button>
