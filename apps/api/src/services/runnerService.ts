@@ -148,6 +148,7 @@ export async function runGroup(
     for (const step of sortedSteps) {
       const stepStartTime = performance.now();
       let finalUrl = '';
+      let finalBody: string | undefined = undefined;
 
       emitEvent({
         type: 'step:started',
@@ -215,7 +216,7 @@ export async function runGroup(
         }
 
         // 4. Resolve Body Content
-        let finalBody: string | undefined = undefined;
+        finalBody = undefined;
         if (step.body && step.body.type !== 'none') {
           finalBody = interpolate(step.body.content, iterVariables).resolved;
         }
@@ -289,6 +290,7 @@ export async function runGroup(
           contentType,
           extractedData,
           assertions: assertionResults,
+          requestBody: finalBody,
           timestamp: new Date().toISOString(),
           url: finalUrl,
           method: step.method,
@@ -326,6 +328,7 @@ export async function runGroup(
           extractedData: {},
           assertions: [],
           error: stepErr.message || 'Unknown network or execution error',
+          requestBody: finalBody,
           timestamp: new Date().toISOString(),
           url: finalUrl || step.path || '',
           method: step.method,

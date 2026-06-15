@@ -42,6 +42,7 @@ export const StepResultSchema = z.object({
   extractedData: z.record(z.string(), z.unknown()).default({}),
   assertions: z.array(AssertionResultSchema).default([]),
   error: z.string().optional(), // populated if the request itself failed (network error, timeout)
+  requestBody: z.string().optional(),
   timestamp: z.string().datetime(),
   url: z.string().default(''),
   method: z.string().default('GET'),

@@ -6,7 +6,7 @@ interface StepResultCardProps {
   result: StepResult;
 }
 
-type TabType = 'overview' | 'headers' | 'body' | 'assertions' | 'extractions';
+type TabType = 'overview' | 'headers' | 'requestBody' | 'body' | 'assertions' | 'extractions';
 
 export function StepResultCard({ result }: StepResultCardProps) {
   const [activeTab, setActiveTab] = useState<TabType>('overview');
@@ -28,6 +28,19 @@ export function StepResultCard({ result }: StepResultCardProps) {
       }
     }
     return result.responseBody;
+  };
+
+  const formattedRequestBody = () => {
+    if (!result.requestBody) return 'Empty request body';
+    const trimmed = result.requestBody.trim();
+    if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
+      try {
+        return JSON.stringify(JSON.parse(result.requestBody), null, 2);
+      } catch {
+        return result.requestBody;
+      }
+    }
+    return result.requestBody;
   };
 
   const formatSize = (bytes: number) => {
@@ -72,33 +85,42 @@ export function StepResultCard({ result }: StepResultCardProps) {
       </div>
 
       {/* Detail Tabs */}
-      <div style={{ display: 'flex', borderBottom: '1px solid var(--border-secondary)', padding: '0 8px', backgroundColor: 'var(--bg-secondary)' }}>
-        {([
-          { id: 'overview', label: 'Overview' },
-          { id: 'headers', label: 'Headers' },
-          { id: 'body', label: 'Response Body' },
-          { id: 'assertions', label: `Assertions (${result.assertions?.length || 0})` },
-          { id: 'extractions', label: `Extractions (${Object.keys(result.extractedData || {}).length})` },
-        ] as { id: TabType; label: string }[]).map((tab) => {
-          const isActive = activeTab === tab.id;
-          return (
-            <button
-              key={tab.id}
-              onClick={() => setActiveTab(tab.id)}
-              style={{
-                padding: '10px 14px',
-                fontSize: '12px',
-                fontWeight: 500,
-                color: isActive ? 'var(--accent-primary)' : 'var(--text-secondary)',
-                borderBottom: isActive ? '2px solid var(--accent-primary)' : '2px solid transparent',
-                cursor: 'pointer',
-                transition: 'all var(--transition-fast)',
-              }}
-            >
-              {tab.label}
-            </button>
+      <div style={{ display: 'flex', borderBottom: '1px solid var(--border-secondary)', padding: '0 8px', backgroundColor: 'var(--bg-secondary)', overflowX: 'auto' }}>
+        {(() => {
+          const tabs: { id: TabType; label: string }[] = [
+            { id: 'overview', label: 'Overview' },
+          ];
+          if (result.requestBody) {
+            tabs.push({ id: 'requestBody', label: 'Request Body' });
+          }
+          tabs.push(
+            { id: 'headers', label: 'Headers' },
+            { id: 'body', label: 'Response Body' },
+            { id: 'assertions', label: `Assertions (${result.assertions?.length || 0})` },
+            { id: 'extractions', label: `Extractions (${Object.keys(result.extractedData || {}).length})` }
           );
-        })}
+          return tabs.map((tab) => {
+            const isActive = activeTab === tab.id;
+            return (
+              <button
+                key={tab.id}
+                onClick={() => setActiveTab(tab.id)}
+                style={{
+                  padding: '10px 14px',
+                  fontSize: '12px',
+                  fontWeight: 500,
+                  color: isActive ? 'var(--accent-primary)' : 'var(--text-secondary)',
+                  borderBottom: isActive ? '2px solid var(--accent-primary)' : '2px solid transparent',
+                  cursor: 'pointer',
+                  transition: 'all var(--transition-fast)',
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                {tab.label}
+              </button>
+            );
+          });
+        })()}
       </div>
 
       {/* Tab Content */}
@@ -178,6 +200,27 @@ export function StepResultCard({ result }: StepResultCardProps) {
                 ))}
               </div>
             )}
+          </div>
+        )}
+
+        {activeTab === 'requestBody' && (
+          <div style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
+            <textarea
+              readOnly
+              className="input"
+              style={{
+                fontFamily: 'var(--font-mono)',
+                width: '100%',
+                flex: 1,
+                minHeight: '220px',
+                fontSize: '12px',
+                resize: 'none',
+                lineHeight: '1.5',
+                backgroundColor: 'var(--bg-primary)',
+                cursor: 'text',
+              }}
+              value={formattedRequestBody()}
+            />
           </div>
         )}
 
