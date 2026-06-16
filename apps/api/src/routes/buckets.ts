@@ -122,6 +122,25 @@ router.post('/import', async (req, res, next) => {
     const importedBuckets: TestBucket[] = [];
 
     for (const raw of rawBuckets) {
+      if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) {
+        res.status(400).json({ error: 'Validation Error', message: 'Imported item must be a JSON/YAML object', statusCode: 400 });
+        return;
+      }
+
+      const allowedKeys = ['id', 'name', 'baseUrl', 'auth', 'variables', 'actionGroups', 'createdAt', 'updatedAt'];
+      const rawKeys = Object.keys(raw);
+      const hasInvalidKeys = rawKeys.some(key => !allowedKeys.includes(key));
+      const hasCoreKeys = rawKeys.some(key => ['name', 'baseUrl', 'variables', 'actionGroups'].includes(key));
+
+      if (hasInvalidKeys || !hasCoreKeys) {
+        res.status(400).json({
+          error: 'Validation Error',
+          message: 'Invalid bucket file structure. The file must contain valid Test Bucket properties (such as name, baseUrl, variables, actionGroups) and no unrecognized fields.',
+          statusCode: 400
+        });
+        return;
+      }
+
       const now = new Date().toISOString();
       const variables: BucketVariable[] = (raw.variables || []).map((v: any) => ({
         id: uuidv4(),
