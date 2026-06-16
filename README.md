@@ -1,126 +1,98 @@
-# Fortest - Real-Time API Test Orchestration Hub
+# Fortest — Real-Time API Test Orchestration & Load Testing Hub
 
-Fortest is a browser-based, developer-focused API testing and orchestration tool. It is designed to group API requests into ordered, executable flows called Action Groups. This allows for sequential execution, dynamic variable chaining, visual response assertions, and concurrent load simulation with real-time feedback.
-
----
-
-## Workspace Structure
-
-The project is managed as a monorepo using `pnpm` workspaces and `turborepo` for package coordination:
-
-- **`apps/web`**: React and Vite client application. Handles workspace creation, step editing, timeline visualization, and real-time execution dashboards.
-- **`apps/api`**: Express backend application. Manages storage persistence, HTTP proxy request execution, variables interpolation, assertion checking, and WebSocket streaming.
-- **`packages/types`**: Shared Zod schemas and TypeScript interface models mapping the domain entities (buckets, steps, variables, runs).
-- **`packages/utils`**: Shared helper libraries such as template string variables interpolation.
+Fortest is a developer-focused API testing and orchestration platform. It allows you to group related API requests into ordered, executable flows called **Action Groups** to simulate real-world user journeys, chain dynamic request parameters, assert response criteria, and run parameterized load tests with real-time feedback.
 
 ---
 
-## Core Features
+## What You Can Accomplish with Fortest
 
-### 1. Dashboard Hub
-The entrance screen of the application offers an overview of all configured test buckets:
-- **Layout Switcher**: Toggle between a visual Grid View or a compact List View. The preference is stored in local storage.
-- **Floating Action Button (FAB)**: A floating dial in the bottom-right corner to initiate bucket creation or guided bucket imports.
-- **Bucket Import/Export**: Export entire buckets including steps, variables, and assertions to JSON/YAML files. Import handles collisions by generating fresh identifier keys.
-- **Schema Guide**: A built-in split screen on import shows schema templates (JSON/YAML) and allows developers to download starting templates.
+### 1. Build Sequential API Pipelines (Action Groups)
+Instead of executing disjointed HTTP requests, you can chain multiple calls together into a linear execution timeline. Drag-and-drop ordering lets you adjust the execution sequence dynamically. Use this to simulate end-to-end integration flows (e.g., Login -> Create Project -> Update Settings -> Delete Project).
 
-### 2. Bucket Settings & Global Configuration
-Once inside a bucket, developers can configure shared environmental parameters:
-- **Base URL & Global Auth**: Define base URLs and default authorizations (Bearer, Basic Auth, API Key) inherited by steps.
-- **Bucket Variables**: Define environmental variable sets.
-- **Bulk Paste**: Allows pasting a block of text (supporting `.env` formatting, JSON objects, or JSON arrays) to quickly append multiple variables.
-- **Scroll-Locking**: Locks background window scrolling when editing modals are open to prevent coordinate shifting.
+### 2. Chain Dynamic Response Data
+Fortest solves the problem of hardcoded request parameters. You can visually define **Extraction Rules** to capture values from HTTP responses (such as JSON body dot-notation paths, response headers, or HTTP status codes) and save them to temporary variables. These variables are automatically suggested via autocompletion (`{{`) when configuring downstream paths, headers, query parameters, or request body payloads.
 
-### 3. Action Group timelines
-Action Groups are ordered sequences of API steps:
-- **Drag-and-Drop Reordering**: Timeline steps can be dynamically dragged and dropped to reorder execution sequence.
-- **Step Duplication**: Quickly copy steps including preconfigured headers, request bodies, assertions, and extraction rules.
-- **Edit Modal**: Update action group names and metadata descriptions.
+### 3. Enforce Declarative Test Assertions
+Ensure your API endpoints behave correctly by building visual assertions. You can verify:
+- HTTP Status Codes
+- Response times (latencies)
+- Header values
+- Body payload properties (using JSON paths)
 
-### 4. Timeline Step Editor
-Configures individual API requests:
-- **Autocomplete Variables**: Triggered by typing `{{` inside parameters, paths, headers, or request bodies. Suggests global bucket variables and values extracted from preceding steps in the group.
-- **Body Linting**: Provides real-time syntax checks for JSON and XML request bodies with error highlights. Includes formatting buttons to beautify JSON payloads.
-- **Form Data grids**: Structured key-value inputs for form-data and x-www-form-urlencoded payloads.
-- **Header Autocomplete**: Autocompletes standard headers (e.g. `Content-Type`, `Authorization`) on focus.
+Fortest supports a variety of comparison operators (e.g., `equals`, `contains`, `exists`, `greater_than`, `matches_regex`) and automatically evaluates them as the test execution flows.
 
-### 5. Extractions & Assertions
-Enforce test criteria and sequence chaining:
-- **Visual Extractions**: Extract values from responses (from headers, status code, or JSON body dot-notation paths) and save them under custom variable names.
-- **Visual Assertions**: Build assertion tests comparing status codes, response times, headers, or body values using comparative operators (`equals`, `contains`, `exists`, `greater_than`, etc.).
+### 4. Parameterize and Simulate Load Tests
+Configure concurrent runs to stress-test your backend or simulate multi-user behavior:
+- **Concurrency & Iterations**: Run multiple parallel execution workers using a built-in concurrent pool.
+- **Isolated Contexts**: Each worker run operates in an isolated environment variables namespace so parallel requests do not overwrite each other's extracted variables.
+- **Data-Driven Inputs**: Upload JSON or CSV data sets directly to the Action Group's data store to map records to test variables, enabling parameterized testing (e.g., running 100 concurrent requests with different test user credentials).
 
-### 6. Executions & Live Dashboard
-Trigger runs and inspect results in real time:
-- **Run Configuration**: Configure iterations, concurrency limits (multi-worker queue pools), inter-step delays, or upload data-store files (CSV/JSON records) to drive parameterized data testing.
-- **Live Waterfall**: Stream progress milestones via WebSockets, rendering active status indicators, elapsed execution times, and assertion pass rates.
-- **Step Result Inspector**: Inspect step results. The tabbed details panel displays:
-  - Request details (method, URL, resolved Request Body).
-  - Response headers.
-  - Formatted Response Body.
-  - Assertion checks and failure messages.
-  - Extracted variables.
+### 5. Stream Real-Time Execution Metrics
+Observe tests in real time via active WebSocket pipelines:
+- Inspect step duration waterfalls, request details, and resolved request bodies.
+- View real-time assertion checks and dynamic extraction outputs.
+- Receive OS-level push notifications once long-running suites or load tests finish executing in the background.
 
-### 7. Run History & Analytics
-- **Capped History**: Displays the history of the last 50 execution runs with status indicators and runtime configurations.
-- **SVG Charts**: Renders custom responsive SVG charts plotting average latencies and P95 distribution curves across runs.
-- **Interactive Coordinates**: Hovering over graph markers displays overlay cards summarizing details of specific historical runs.
+### 6. Track Latency Trends and Analytics
+Analyze historical performance runs to catch regressions:
+- Maintain a local history of up to 50 previous execution runs per Action Group.
+- Review automatically generated latency analytics (minimum, maximum, average) and response percentiles (`p50`, `p95`, `p99`).
+- Interactive SVG trend lines map latencies chronologically across test runs.
+
+### 7. Export, Import, and Share Test Suites
+Collaborate on test suites by exporting entire buckets (including environment variables, action groups, steps, assertions, and data stores) as JSON or YAML files. Importing files automatically regenerates unique identifiers to prevent collisions with existing workspaces.
 
 ---
 
-## Technical Stack & Dependencies
+## Workspace Architecture
 
-- **Frontend**: React, Zustand (state coordination), Lucide React (icons), CodeMirror (code syntax linting).
-- **Backend**: Express, WS (WebSockets), Redis (caching and runner orchestration with local fallback).
-- **Tooling**: Turborepo, Vite, TypeScript, PNPM.
+The project is structured as a monorepo coordinated by `pnpm` workspaces and `turborepo`:
+
+- **`apps/web`**: Single Page Application built using React, Vite, and CSS. Handles configuration, drag-and-drop timeline management, and real-time execution dashboards.
+- **`apps/api`**: Node.js Express server. Executes proxy requests, handles WebSocket streaming, parses variables/assertions, and runs concurrent load test routines.
+- **`packages/types`**: Shared Zod schemas and TypeScript models representing buckets, steps, results, and metrics.
+- **`packages/utils`**: Core shared libraries (including the template string variables interpolator).
+
+---
 
 ## Getting Started
 
-You can choose to spin up Fortest immediately using Docker, or run a local development workspace on your host machine.
+### Method 1: Running with Docker (Quick Start)
 
-### Method 1: Running with Docker (Recommended for quick start)
+Run the entire application stack instantly. This option packages both the backend API and the compiled React assets together, serving them on port `3001` with local Redis persistence.
 
-This runs the entire stack inside containers and does not require Node, PNPM, or local Redis to be installed on your machine.
-
-1. **Spin up the stack**:
+1. **Start the containers**:
    ```bash
    docker compose up -d --build
    ```
 2. **Access the application**:
-   * Open `http://localhost:3001` in your browser.
+   - Open `http://localhost:3001` in your browser.
 
 ---
 
-### Method 2: Running Locally (For development & code edits)
+### Method 2: Running Locally (For Development)
 
-Use this if you are actively editing code and want hot-reloading (HMR) to trigger immediately.
+Use this method if you are making code changes and need hot-reloading (HMR) to reflect immediately.
 
-1. **Run only the database dependency (via Docker)**:
+1. **Spin up the database dependency (Docker)**:
    ```bash
    docker compose up redis -d
    ```
-2. **Install workspace dependencies**:
+2. **Install dependencies**:
    ```bash
    pnpm install
    ```
-3. **Run the local development servers**:
+3. **Start the development servers**:
    ```bash
    pnpm dev
    ```
-   * **Frontend app**: runs on `http://localhost:5173`
-   * **Backend API**: runs on `http://localhost:3001` (loads `.env` configuration from `apps/api/.env`)
+   - **Frontend App**: `http://localhost:5173`
+   - **Backend API**: `http://localhost:3001`
 
 ---
 
-### Additional Workspace Commands
+## Workspace Commands
 
-#### Building for Production
-Build client application assets and API server packages locally:
-```bash
-pnpm build
-```
-
-#### Type Checking
-Run workspace-wide TypeScript compiler checks:
-```bash
-pnpm typecheck
-```
+- **Build Project**: `pnpm build` (Compiles React assets and TypeScript API files).
+- **Run Typechecking**: `pnpm typecheck` (Runs compiler checks across all workspaces).
+- **Clean Workspace**: `pnpm clean` (Wipes build outputs and cached directories).
