@@ -44,6 +44,247 @@ Collaborate on test suites by exporting entire buckets (including environment va
 
 ---
 
+## Designing Test Bucket Files (JSON & YAML Schema Guide)
+
+Fortest supports importing complete test suites from JSON or YAML files. Below is a detailed breakdown of the file schema, including compulsory properties, optional properties, and how they drive your testing pipelines.
+
+### 1. Test Bucket (Root Object)
+The top-level container that groups related Action Groups and defines environmental settings.
+
+| Property | Type | Required / Optional | Description |
+| :--- | :--- | :--- | :--- |
+| `name` | String | **Compulsory** | The name of the bucket (e.g., "Payment Service API"). |
+| `baseUrl` | String | Optional | The base URL prefixed to all step paths (e.g., `https://api.myapp.com`). Default: `""`. |
+| `auth` | Object | Optional | Global authenticator inherited by all steps. Default: `{ type: "none" }`. |
+| `variables` | Array | Optional | Environmental key-value variables. Default: `[]`. |
+| `actionGroups` | Array | Optional | List of test workflows. Default: `[]`. |
+
+#### How to use the `auth` tag:
+The `auth` object allows you to specify global authentication details. Optional configurations include:
+- **Bearer Token**: `{ "type": "bearer", "bearer": { "token": "YOUR_TOKEN" } }`
+- **Basic Auth**: `{ "type": "basic", "basic": { "username": "admin", "password": "securepassword" } }`
+- **API Key**: `{ "type": "api-key", "apiKey": { "key": "x-api-key", "value": "my-secret-key", "addTo": "header" } }` (where `addTo` can be `"header"` or `"query"`_).
+
+---
+
+### 2. Bucket Variables (`variables[]`)
+Shared environment parameters that can be interpolated in any URL, header, query param, or request body using double braces (e.g., `{{apiUrl}}`).
+
+| Property | Type | Required / Optional | Description |
+| :--- | :--- | :--- | :--- |
+| `key` | String | **Compulsory** | The variable placeholder label. |
+| `value` | String | **Compulsory** | The value assigned to the variable. |
+| `enabled` | Boolean | Optional | Determines if the variable is active. Default: `true`. |
+
+---
+
+### 3. Action Groups (`actionGroups[]`)
+Ordered test suites representing an end-to-end integration scenario.
+
+| Property | Type | Required / Optional | Description |
+| :--- | :--- | :--- | :--- |
+| `name` | String | **Compulsory** | The name of the test suite. |
+| `description` | String | Optional | Documentation explaining the purpose of this group. Default: `""`. |
+| `steps` | Array | Optional | List of request steps. Default: `[]`. |
+| `dataStore` | Object | Optional | Parameter file records used to feed variables during concurrent load tests. |
+
+#### Data Store Optimization:
+The `dataStore` object contains records for data-driven testing:
+```json
+"dataStore": {
+  "name": "User Accounts",
+  "records": [
+    { "testUser": "user1@example.com", "testPass": "pwd1" },
+    { "testUser": "user2@example.com", "testPass": "pwd2" }
+  ]
+}
+```
+During multi-iteration or load tests, Fortest will automatically feed each concurrent iteration with the corresponding record, allowing you to use `{{testUser}}` in your steps.
+
+---
+
+### 4. Steps (`steps[]`)
+Individual HTTP requests within an Action Group.
+
+| Property | Type | Required / Optional | Description |
+| :--- | :--- | :--- | :--- |
+| `name` | String | **Compulsory** | The name of the request (e.g., "Authenticate User"). |
+| `method` | String | Optional | HTTP method (e.g., `"GET"`, `"POST"`, `"PUT"`, `"DELETE"`). Default: `"GET"`. |
+| `path` | String | Optional | Endpoint route appended to `baseUrl` (e.g., `"/v1/login"`). Default: `"/"`. |
+| `headers` | Array | Optional | Request headers array. Default: `[]`. |
+| `params` | Array | Optional | Query parameters array. Default: `[]`. |
+| `body` | Object | Optional | Request body configuration. Default: `{ type: "none", content: "" }`. |
+| `auth` | Object | Optional | Step-level auth overrides. Inherits bucket auth if omitted. |
+| `extractions` | Array | Optional | Extraction rules to parse response parameters. Default: `[]`. |
+| `assertions` | Array | Optional | Assertions to validate responses. Default: `[]`. |
+
+#### How to use headers and query parameters arrays:
+Headers and params use key-value schemas:
+```json
+"headers": [
+  { "key": "Accept", "value": "application/json", "enabled": true }
+]
+```
+
+#### How to use the `body` tag:
+Supports multiple formats:
+- **JSON**: `{ "type": "json", "content": "{\"email\":\"{{email}}\"}" }`
+- **Form Data / URL Encoded**: `{ "type": "form-data", "content": "key1=val1&key2=val2" }` (or standard raw content formats).
+
+---
+
+### 5. Extraction Rules (`extractions[]`)
+Rules that extract values from a response and save them as variables for subsequent steps.
+
+| Property | Type | Required / Optional | Description |
+| :--- | :--- | :--- | :--- |
+| `variableName` | String | **Compulsory** | The variable name to store the value (referenced as `{{steps.StepName.variableName}}`). |
+| `selector` | String | **Compulsory** | Path selector mapping. For `body`, use dot-notation (e.g., `user.auth_token`). |
+| `source` | String | Optional | Where to extract from (`"body"`, `"header"`, `"status"`). Default: `"body"`. |
+
+---
+
+### 6. Test Assertions (`assertions[]`)
+Assertion criteria that must pass for the step (and run) to be marked as successful.
+
+| Property | Type | Required / Optional | Description |
+| :--- | :--- | :--- | :--- |
+| `target` | String | **Compulsory** | Target parameter (`"status"`, `"body"`, `"header"`, `"response_time"`). |
+| `operator` | String | **Compulsory** | Operator (`"equals"`, `"not_equals"`, `"contains"`, `"greater_than"`, `"less_than"`, `"exists"`, `"matches_regex"`). |
+| `expected` | String | **Compulsory** | The expected value. Autocomplete-enabled (can use `{{variables}}`). |
+| `selector` | String | Optional | The dot-notation path (required if target is `"body"` or `"header"`). Default: `""`. |
+
+---
+
+### Complete Templates
+
+#### JSON Template (`fortest-template.json`)
+```json
+{
+  "name": "Sample API Workspace",
+  "baseUrl": "https://api.example.com",
+  "auth": {
+    "type": "none"
+  },
+  "variables": [
+    {
+      "key": "defaultRole",
+      "value": "developer",
+      "enabled": true
+    }
+  ],
+  "actionGroups": [
+    {
+      "name": "User Auth Flow",
+      "description": "Log in a user, extract a bearer token, and verify profile retrieval.",
+      "steps": [
+        {
+          "name": "Login Step",
+          "method": "POST",
+          "path": "/auth/login",
+          "headers": [
+            { "key": "Content-Type", "value": "application/json", "enabled": true }
+          ],
+          "body": {
+            "type": "json",
+            "content": "{\"username\": \"admin\", \"password\": \"secret\"}"
+          },
+          "extractions": [
+            {
+              "variableName": "authToken",
+              "source": "body",
+              "selector": "data.token"
+            }
+          ],
+          "assertions": [
+            {
+              "target": "status",
+              "operator": "equals",
+              "expected": "200"
+            }
+          ]
+        },
+        {
+          "name": "Get Profile",
+          "method": "GET",
+          "path": "/users/profile",
+          "auth": {
+            "type": "bearer",
+            "bearer": {
+              "token": "{{steps.Login Step.authToken}}"
+            }
+          },
+          "assertions": [
+            {
+              "target": "status",
+              "operator": "equals",
+              "expected": "200"
+            },
+            {
+              "target": "body",
+              "selector": "user.role",
+              "operator": "equals",
+              "expected": "{{defaultRole}}"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
+```
+
+#### YAML Template (`fortest-template.yaml`)
+```yaml
+name: "Sample API Workspace"
+baseUrl: "https://api.example.com"
+auth:
+  type: "none"
+variables:
+  - key: "defaultRole"
+    value: "developer"
+    enabled: true
+actionGroups:
+  - name: "User Auth Flow"
+    description: "Log in a user, extract a bearer token, and verify profile retrieval."
+    steps:
+      - name: "Login Step"
+        method: "POST"
+        path: "/auth/login"
+        headers:
+          - key: "Content-Type"
+            value: "application/json"
+            enabled: true
+        body:
+          type: "json"
+          content: "{\"username\": \"admin\", \"password\": \"secret\"}"
+        extractions:
+          - variableName: "authToken"
+            source: "body"
+            selector: "data.token"
+        assertions:
+          - target: "status"
+            operator: "equals"
+            expected: "200"
+      - name: "Get Profile"
+        method: "GET"
+        path: "/users/profile"
+        auth:
+          type: "bearer"
+          bearer:
+            token: "{{steps.Login Step.authToken}}"
+        assertions:
+          - target: "status"
+            operator: "equals"
+            expected: "200"
+          - target: "body"
+            selector: "user.role"
+            operator: "equals"
+            expected: "{{defaultRole}}"
+```
+
+---
+
 ## Workspace Architecture
 
 The project is structured as a monorepo coordinated by `pnpm` workspaces and `turborepo`:
