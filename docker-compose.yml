@@ -15,5 +15,20 @@ services:
       retries: 3
     restart: unless-stopped
 
+  app:
+    build: .
+    container_name: fortest-app
+    ports:
+      - "3001:3001"
+    environment:
+      - NODE_ENV=production
+      - REDIS_URL=redis://fortest-redis:6379
+      - ALLOW_PRIVATE_IPS=true
+      - PORT=3001
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
 volumes:
   fortest-redis-data:

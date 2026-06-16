@@ -73,31 +73,53 @@ Trigger runs and inspect results in real time:
 - **Backend**: Express, WS (WebSockets), Redis (caching and runner orchestration with local fallback).
 - **Tooling**: Turborepo, Vite, TypeScript, PNPM.
 
----
-
 ## Getting Started
 
-### Installation
-Install workspace dependencies from the root directory:
-```bash
-pnpm install
-```
+You can choose to spin up Fortest immediately using Docker, or run a local development workspace on your host machine.
 
-### Running Locally
-Run both frontend and backend development servers simultaneously:
-```bash
-pnpm dev
-```
-- Frontend application runs on: `http://localhost:5173`
-- Backend API server runs on: `http://localhost:3000`
+### Method 1: Running with Docker (Recommended for quick start)
 
-### Building for Production
-Build both client application assets and API server packages:
+This runs the entire stack inside containers and does not require Node, PNPM, or local Redis to be installed on your machine.
+
+1. **Spin up the stack**:
+   ```bash
+   docker compose up -d --build
+   ```
+2. **Access the application**:
+   * Open `http://localhost:3001` in your browser.
+
+---
+
+### Method 2: Running Locally (For development & code edits)
+
+Use this if you are actively editing code and want hot-reloading (HMR) to trigger immediately.
+
+1. **Run only the database dependency (via Docker)**:
+   ```bash
+   docker compose up redis -d
+   ```
+2. **Install workspace dependencies**:
+   ```bash
+   pnpm install
+   ```
+3. **Run the local development servers**:
+   ```bash
+   pnpm dev
+   ```
+   * **Frontend app**: runs on `http://localhost:5173`
+   * **Backend API**: runs on `http://localhost:3001` (loads `.env` configuration from `apps/api/.env`)
+
+---
+
+### Additional Workspace Commands
+
+#### Building for Production
+Build client application assets and API server packages locally:
 ```bash
 pnpm build
 ```
 
-### Type Checking
+#### Type Checking
 Run workspace-wide TypeScript compiler checks:
 ```bash
 pnpm typecheck

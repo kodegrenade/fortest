@@ -1,3 +1,4 @@
+import path from 'path';
 import express, { type Request, type Response, type NextFunction } from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
@@ -44,6 +45,19 @@ app.use('/api/proxy', proxyRouter);
 app.use('/api/health', healthRouter);
 app.use('/api/buckets', bucketsRouter);
 app.use('/api/runs', runsRouter);
+
+// --- Serve static frontend in production ---
+if (process.env['NODE_ENV'] === 'production') {
+  const webDistPath = path.resolve(__dirname, '../../web/dist');
+  app.use(express.static(webDistPath));
+
+  app.get('*splat', (req: Request, res: Response, next: NextFunction) => {
+    if (req.path.startsWith('/api/') || req.path.startsWith('/ws')) {
+      return next();
+    }
+    res.sendFile(path.join(webDistPath, 'index.html'));
+  });
+}
 
 // --- Global Error Handler ---
 // Express 5 forwards async rejections here automatically
