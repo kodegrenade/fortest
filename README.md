@@ -285,6 +285,33 @@ actionGroups:
 
 ---
 
+## Advanced Execution & Variable Scoping Rules
+
+### 1. Variable Precedence and Namespace Scopes
+When Fortest resolves template variables (e.g., `{{placeholder}}`) during execution, it compiles a runtime context mapping keys to values. Collision resolution is handled in the following order:
+- **Global Bucket Variables**: Loaded first.
+- **Data Store Parameters** (for load testing): Appended next. If a parameter in the Data Store has the same key as a Global Bucket Variable, the **Data Store parameter overrides the Global Variable**.
+- **Step Extractions**: Extracted variables are stored in a step-specific namespace (e.g., `{{steps.Login Step.token}}`). Because they are isolated by step names, they will never collide with or overwrite global variables.
+
+*Note: Unresolved placeholders are left as-is (e.g., `{{missingVar}}` remains in the string), allowing you to easily identify configuration errors in request payloads.*
+
+### 2. Server-Side Request Forgery (SSRF) Protection
+To prevent server abuse in production environments, the API backend includes an active IP security filter:
+- **Default Production Mode**: In production (`NODE_ENV=production`), the backend blocks all HTTP proxy requests targeting loopback, local network, or private IP ranges (e.g., `localhost`, `127.0.0.1`, `10.0.0.0/8`, `192.168.0.0/16`).
+- **Development Bypass**: To bypass this filter when running locally or inside internal Docker networks, you must inject the environment variable `ALLOW_PRIVATE_IPS=true` into the API container or process.
+
+### 3. Run History Capping and Redis Memory Management
+To keep the Redis database footprint small, Fortest enforces a strict **50-run capped retention policy** per Action Group:
+- When a new execution finishes, Fortest checks the total run count for that group.
+- If it exceeds 50, the oldest run records (including full HTTP headers, request and response bodies) are automatically deleted.
+
+### 4. Space-Safe Timeline Identifiers
+Action Group step names can safely contain spaces:
+- **Example**: If a step is named `Create Account`, you can reference its extracted ID in downstream headers as `{{steps.Create Account.newUserId}}`. 
+- **Constraint**: Step names must be unique within an Action Group. Defining multiple steps with the same name will cause downstream extraction variable lookups to overwrite each other.
+
+---
+
 ## Workspace Architecture
 
 The project is structured as a monorepo coordinated by `pnpm` workspaces and `turborepo`:
