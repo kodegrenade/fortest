@@ -253,8 +253,24 @@ export function DashboardHub() {
       const format = ext === 'yaml' || ext === 'yml' ? 'yaml' : 'json';
 
       try {
-        await importBucket(text, format);
-        addToast(`Bucket "${selectedFile.name}" imported successfully`, 'success');
+        const result = await importBucket(text, format);
+
+        if (result.source === 'postman') {
+          addToast(`Postman collection "${selectedFile.name}" imported successfully`, 'success');
+        } else {
+          addToast(`Bucket "${selectedFile.name}" imported successfully`, 'success');
+        }
+
+        // Show any conversion warnings as info toasts
+        if (result.warnings && result.warnings.length > 0) {
+          for (const warning of result.warnings.slice(0, 5)) {
+            addToast(warning, 'warning');
+          }
+          if (result.warnings.length > 5) {
+            addToast(`...and ${result.warnings.length - 5} more warnings`, 'warning');
+          }
+        }
+
         setDialogState({ type: null });
         setSelectedFile(null);
       } catch (err: any) {
@@ -810,7 +826,7 @@ export function DashboardHub() {
               <div className="import-modal__upload-panel">
                 <h3 className="modal-title">Import Test Bucket</h3>
                 <p style={{ color: 'var(--text-secondary)', marginBottom: '20px', fontSize: '13px', lineHeight: 1.5 }}>
-                  Select or drag and drop a test bucket configuration file. Supported formats: JSON (`.json`) or YAML (`.yaml`, `.yml`).
+                  Select or drag and drop a configuration file. Supports Fortest bucket files (`.json`, `.yaml`, `.yml`) and <strong>Postman Collection exports</strong> (`.json`).
                 </p>
 
                 {!selectedFile ? (

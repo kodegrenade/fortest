@@ -4,6 +4,7 @@ import * as yaml from 'yaml';
 import { v4 as uuidv4 } from 'uuid';
 import { TestBucketSchema, type TestBucket, type ActionGroup, type Step, type BucketVariable } from '@fortest/types';
 import * as bucketService from '../services/bucketService';
+import { isPostmanCollection, convertPostmanCollection } from '../services/postmanConverter';
 
 const router: ExpressRouter = Router();
 
@@ -117,6 +118,28 @@ router.post('/import', async (req, res, next) => {
       return;
     }
 
+    // --- Postman Collection detection ---
+    if (!Array.isArray(parsed) && isPostmanCollection(parsed)) {
+      const { bucket, warnings } = convertPostmanCollection(parsed);
+      const validatedBucket = TestBucketSchema.safeParse(bucket);
+      if (!validatedBucket.success) {
+        res.status(400).json({
+          error: 'Conversion Error',
+          message: 'Postman collection could not be converted to a valid Test Bucket',
+          details: validatedBucket.error.errors,
+          statusCode: 400,
+        });
+        return;
+      }
+      await bucketService.saveBucket(validatedBucket.data);
+      res.status(201).json({
+        ...validatedBucket.data,
+        _importMeta: { source: 'postman', warnings },
+      });
+      return;
+    }
+
+    // --- Standard Fortest bucket import ---
     const isArray = Array.isArray(parsed);
     const rawBuckets = isArray ? parsed : [parsed];
     const importedBuckets: TestBucket[] = [];

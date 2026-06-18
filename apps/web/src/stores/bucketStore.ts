@@ -1,6 +1,11 @@
 import { create } from 'zustand';
 import type { TestBucket, ActionGroup, Step } from '@fortest/types';
 
+export interface ImportResult {
+  warnings: string[];
+  source: 'postman' | 'fortest';
+}
+
 interface BucketState {
   buckets: TestBucket[];
   activeBucketId: string | null;
@@ -14,7 +19,7 @@ interface BucketState {
   createBucket: (name: string, baseUrl?: string) => Promise<void>;
   updateBucket: (id: string, data: Partial<TestBucket>) => Promise<void>;
   deleteBucket: (id: string) => Promise<void>;
-  importBucket: (content: string, format: 'json' | 'yaml') => Promise<void>;
+  importBucket: (content: string, format: 'json' | 'yaml') => Promise<ImportResult>;
 
   // Navigation
   setActiveBucket: (id: string | null) => void;
@@ -125,8 +130,19 @@ export const useBucketStore = create<BucketState>((set, get) => ({
         const errData = await res.json();
         throw new Error(errData.message || 'Failed to import bucket');
       }
-      
+
+      const data = await res.json();
       await get().loadBuckets();
+
+      // Return import metadata if present (Postman imports include warnings)
+      if (data._importMeta) {
+        return {
+          source: data._importMeta.source || 'postman',
+          warnings: data._importMeta.warnings || [],
+        };
+      }
+
+      return { source: 'fortest', warnings: [] };
     } catch (err: any) {
       const errMsg = err.message || 'Failed to import bucket';
       set({ error: errMsg, isLoading: false });
