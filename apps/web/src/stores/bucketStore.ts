@@ -215,6 +215,14 @@ export const useBucketStore = create<BucketState>((set, get) => ({
     const group = bucket.actionGroups.find((g) => g.id === groupId);
     if (!group) return;
 
+    const targetName = name.trim().toLowerCase();
+    const duplicateExists = group.steps.some(
+      (s) => s.name.trim().toLowerCase() === targetName
+    );
+    if (duplicateExists) {
+      throw new Error(`A step named "${name}" already exists in this action group.`);
+    }
+
     const newStep: Step = {
       id: crypto.randomUUID(),
       name,
@@ -248,6 +256,19 @@ export const useBucketStore = create<BucketState>((set, get) => ({
   updateStep: async (bucketId, groupId, stepId, data) => {
     const bucket = get().buckets.find((b) => b.id === bucketId);
     if (!bucket) return;
+
+    const group = bucket.actionGroups.find((g) => g.id === groupId);
+    if (!group) return;
+
+    if (data.name) {
+      const targetName = data.name.trim().toLowerCase();
+      const duplicateExists = group.steps.some(
+        (s) => s.id !== stepId && s.name.trim().toLowerCase() === targetName
+      );
+      if (duplicateExists) {
+        throw new Error(`A step named "${data.name}" already exists in this action group.`);
+      }
+    }
 
     const updatedGroups = bucket.actionGroups.map((g) => {
       if (g.id === groupId) {
@@ -336,10 +357,17 @@ export const useBucketStore = create<BucketState>((set, get) => ({
     const sourceStep = group.steps.find((s) => s.id === stepId);
     if (!sourceStep) return;
 
+    let targetCopyName = `${sourceStep.name} (Copy)`;
+    let copyCounter = 1;
+    while (group.steps.some((s) => s.name.trim().toLowerCase() === targetCopyName.trim().toLowerCase())) {
+      copyCounter++;
+      targetCopyName = `${sourceStep.name} (Copy ${copyCounter})`;
+    }
+
     const newStep: Step = {
       ...sourceStep,
       id: crypto.randomUUID(),
-      name: `${sourceStep.name} (Copy)`,
+      name: targetCopyName,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
       headers: sourceStep.headers.map((h) => ({ ...h, id: crypto.randomUUID() })),

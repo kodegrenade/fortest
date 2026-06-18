@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useBucketStore } from '@/stores/bucketStore';
+import { useToastStore } from '@/stores/toastStore';
 import { TrashIcon, PlusIcon } from '@/components/common/Icons';
 import type { KeyValuePair, RequestBody, AuthConfig, ExtractionRule, Assertion } from '@fortest/types';
 import './Steps.css';
@@ -112,6 +113,7 @@ function validateXml(content: string): string | null {
 
 export function StepEditor({ bucketId, groupId, stepId }: StepEditorProps) {
   const { buckets, updateStep } = useBucketStore();
+  const { addToast } = useToastStore();
   const bucket = buckets.find((b) => b.id === bucketId);
   const group = bucket?.actionGroups.find((g) => g.id === groupId);
   const step = group?.steps.find((s) => s.id === stepId);
@@ -196,9 +198,13 @@ export function StepEditor({ bucketId, groupId, stepId }: StepEditorProps) {
         assertions: cleanAssertions,
       });
       setSaveStatus('saved');
-    } catch (err) {
+    } catch (err: any) {
       console.error('Failed to auto-save step data', err);
       setSaveStatus(null);
+      addToast(err.message || 'Failed to auto-save step data', 'error');
+      if (updates.name !== undefined && step) {
+        setName(step.name);
+      }
     }
   };
 

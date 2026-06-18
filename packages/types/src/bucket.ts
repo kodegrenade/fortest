@@ -87,7 +87,16 @@ export const ActionGroupSchema = z.object({
   dataStore: DataStoreSchema.optional(),
   createdAt: z.string().datetime(),
   updatedAt: z.string().datetime(),
-});
+}).refine(
+  (data) => {
+    const names = data.steps.map((s) => s.name.trim().toLowerCase());
+    return names.length === new Set(names).size;
+  },
+  {
+    message: 'Duplicate step names are not allowed within the same action group',
+    path: ['steps'],
+  }
+);
 export type ActionGroup = z.infer<typeof ActionGroupSchema>;
 
 // --- Bucket Variable ---
