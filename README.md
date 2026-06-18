@@ -40,7 +40,7 @@ Analyze historical performance runs to catch regressions:
 - Interactive SVG trend lines map latencies chronologically across test runs.
 
 ### 7. Export, Import, and Share Test Suites
-Collaborate on test suites by exporting entire buckets (including environment variables, action groups, steps, assertions, and data stores) as JSON or YAML files. Importing files automatically regenerates unique identifiers to prevent collisions with existing workspaces.
+Collaborate on test suites by exporting entire buckets (including environment variables, action groups, steps, assertions, and data stores) as JSON or YAML files. Importing files automatically regenerates unique identifiers to prevent collisions with existing workspaces. You can also import existing **Postman Collections (v2.0 & v2.1)** directly to instantly bootstrap your test buckets, mapping folders, requests, variables, and auth configurations into Fortest schemas.
 
 ---
 
@@ -282,6 +282,41 @@ actionGroups:
             operator: "equals"
             expected: "{{defaultRole}}"
 ```
+
+---
+
+## Importing Postman Collections
+
+Fortest supports importing Postman Collection exports (v2.0 and v2.1 JSON formats) directly. When importing a Postman collection, the system automatically detects the format, creates a new Test Bucket, and maps the Postman schema to Fortest's execution model.
+
+### 1. Conceptual Mapping
+
+| Postman Component | Fortest Component | Conversion Details |
+| :--- | :--- | :--- |
+| **Collection** | **Test Bucket** | The collection name is used as the bucket name. The base URL is automatically extracted from request URLs. |
+| **Top-level Folders** | **Action Groups** | Each top-level folder becomes an Action Group containing its requests as steps. |
+| **Nested Subfolders** | **Flattened Action Groups** | Since Fortest supports single-level Action Groups, any nested folders are flattened into the parent top-level Action Group with a warning. |
+| **Root-level Requests** | **Ungrouped Requests** | Requests at the root level of the collection are grouped into a default action group named `"Ungrouped Requests"`. |
+| **Variables** | **Bucket Variables** | Collection-level variables are imported as global Bucket Variables. |
+| **Request Steps** | **Steps** | Individual HTTP requests are imported as steps within the respective Action Group, keeping their relative order. |
+
+### 2. Request Mapping Details
+
+- **HTTP Methods & Paths**: Mapped directly (e.g., `GET`, `POST`, `PUT`, `DELETE`).
+- **URL Decomposition**: The converter parses the Postman URL object or string. It attempts to extract a common base URL (e.g., `https://api.example.com`) for the Test Bucket and converts request paths to relative endpoints (e.g., `/users`).
+- **Headers & Query Params**: Headers and parameters are mapped to key-value objects, preserving active/disabled states.
+- **Request Bodies**:
+  - `raw` (JSON or text) is mapped to JSON/raw step bodies.
+  - `formdata` and `urlencoded` body types are mapped to form-data and urlencoded payload configurations respectively.
+- **Authentication**:
+  - Supports **Bearer Token**, **Basic Auth**, and **API Key** authentication defined at both the Collection level (global) and individual Request/Step level.
+
+### 3. Unsupported Features and Warnings
+
+Postman collections can contain execution logic or configuration not supported by Fortest. During import, the frontend displays warning notifications for elements that were skipped or flattened:
+- **Scripts**: Pre-request and test scripts (JavaScript) are skipped.
+- **Nested Folders**: Warnings are shown for nested folders that were flattened into their parent folder.
+- **Unsupported Auth**: Auth methods like `oauth2`, `digest`, `hawk`, or `oauth1` are skipped, defaulting the step to use `"none"` or inherit the bucket-level auth.
 
 ---
 
