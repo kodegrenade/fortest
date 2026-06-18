@@ -1,4 +1,4 @@
-# Fortest — Real-Time API Test Orchestration & Load Testing Hub
+# Fortest — Real-Time API Test Orchestration Tool
 
 Fortest is a developer-focused API testing and orchestration platform. It allows you to group related API requests into ordered, executable flows called **Action Groups** to simulate real-world user journeys, chain dynamic request parameters, assert response criteria, and run parameterized load tests with real-time feedback.
 
@@ -53,8 +53,8 @@ The top-level container that groups related Action Groups and defines environmen
 
 | Property | Type | Required / Optional | Description |
 | :--- | :--- | :--- | :--- |
-| `name` | String | **Compulsory** | The name of the bucket (e.g., "Payment Service API"). |
-| `baseUrl` | String | Optional | The base URL prefixed to all step paths (e.g., `https://api.myapp.com`). Default: `""`. |
+| `name` | String | **Required** | The name of the bucket (e.g., "Payment Service API"). |
+| `baseUrl` | String | **Required** | The base URL prefixed to all step paths (e.g., `https://api.myapp.com`). Default: `""`. |
 | `auth` | Object | Optional | Global authenticator inherited by all steps. Default: `{ type: "none" }`. |
 | `variables` | Array | Optional | Environmental key-value variables. Default: `[]`. |
 | `actionGroups` | Array | Optional | List of test workflows. Default: `[]`. |
@@ -72,8 +72,8 @@ Shared environment parameters that can be interpolated in any URL, header, query
 
 | Property | Type | Required / Optional | Description |
 | :--- | :--- | :--- | :--- |
-| `key` | String | **Compulsory** | The variable placeholder label. |
-| `value` | String | **Compulsory** | The value assigned to the variable. |
+| `key` | String | **Required** | The variable placeholder label. |
+| `value` | String | **Required** | The value assigned to the variable. |
 | `enabled` | Boolean | Optional | Determines if the variable is active. Default: `true`. |
 
 ---
@@ -83,7 +83,7 @@ Ordered test suites representing an end-to-end integration scenario.
 
 | Property | Type | Required / Optional | Description |
 | :--- | :--- | :--- | :--- |
-| `name` | String | **Compulsory** | The name of the test suite. |
+| `name` | String | **Required** | The name of the test suite. |
 | `description` | String | Optional | Documentation explaining the purpose of this group. Default: `""`. |
 | `steps` | Array | Optional | List of request steps. Default: `[]`. |
 | `dataStore` | Object | Optional | Parameter file records used to feed variables during concurrent load tests. |
@@ -108,9 +108,9 @@ Individual HTTP requests within an Action Group.
 
 | Property | Type | Required / Optional | Description |
 | :--- | :--- | :--- | :--- |
-| `name` | String | **Compulsory** | The name of the request (e.g., "Authenticate User"). |
-| `method` | String | Optional | HTTP method (e.g., `"GET"`, `"POST"`, `"PUT"`, `"DELETE"`). Default: `"GET"`. |
-| `path` | String | Optional | Endpoint route appended to `baseUrl` (e.g., `"/v1/login"`). Default: `"/"`. |
+| `name` | String | **Required** | The name of the request (e.g., "Authenticate User"). |
+| `method` | String | **Required** | HTTP method (e.g., `"GET"`, `"POST"`, `"PUT"`, `"DELETE"`). Default: `"GET"`. |
+| `path` | String | **Required** | Endpoint route appended to `baseUrl` (e.g., `"/v1/login"`). Default: `"/"`. |
 | `headers` | Array | Optional | Request headers array. Default: `[]`. |
 | `params` | Array | Optional | Query parameters array. Default: `[]`. |
 | `body` | Object | Optional | Request body configuration. Default: `{ type: "none", content: "" }`. |
@@ -138,8 +138,8 @@ Rules that extract values from a response and save them as variables for subsequ
 
 | Property | Type | Required / Optional | Description |
 | :--- | :--- | :--- | :--- |
-| `variableName` | String | **Compulsory** | The variable name to store the value (referenced as `{{steps.StepName.variableName}}`). |
-| `selector` | String | **Compulsory** | Path selector mapping. For `body`, use dot-notation (e.g., `user.auth_token`). |
+| `variableName` | String | **Required** | The variable name to store the value (referenced as `{{steps.StepName.variableName}}`). |
+| `selector` | String | **Required** | Path selector mapping. For `body`, use dot-notation (e.g., `user.auth_token`). |
 | `source` | String | Optional | Where to extract from (`"body"`, `"header"`, `"status"`). Default: `"body"`. |
 
 ---
@@ -149,9 +149,9 @@ Assertion criteria that must pass for the step (and run) to be marked as success
 
 | Property | Type | Required / Optional | Description |
 | :--- | :--- | :--- | :--- |
-| `target` | String | **Compulsory** | Target parameter (`"status"`, `"body"`, `"header"`, `"response_time"`). |
-| `operator` | String | **Compulsory** | Operator (`"equals"`, `"not_equals"`, `"contains"`, `"greater_than"`, `"less_than"`, `"exists"`, `"matches_regex"`). |
-| `expected` | String | **Compulsory** | The expected value. Autocomplete-enabled (can use `{{variables}}`). |
+| `target` | String | **Required** | Target parameter (`"status"`, `"body"`, `"header"`, `"response_time"`). |
+| `operator` | String | **Required** | Operator (`"equals"`, `"not_equals"`, `"contains"`, `"greater_than"`, `"less_than"`, `"exists"`, `"matches_regex"`). |
+| `expected` | String | **Required** | The expected value. Autocomplete-enabled (can use `{{variables}}`). |
 | `selector` | String | Optional | The dot-notation path (required if target is `"body"` or `"header"`). Default: `""`. |
 
 ---
