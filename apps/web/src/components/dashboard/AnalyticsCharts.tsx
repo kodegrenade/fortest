@@ -87,7 +87,7 @@ export function AnalyticsCharts({ groupId }: AnalyticsChartsProps) {
   };
 
   return (
-    <div style={{ padding: '24px', display: 'flex', flexDirection: 'column', gap: '20px', overflowY: 'auto', flex: 1 }}>
+    <div style={{ padding: '24px', display: 'flex', flexDirection: 'column', gap: '20px', overflowY: 'auto', flex: 1, minHeight: 0 }}>
       <div>
         <h3 style={{ fontSize: '16px', fontWeight: 700, color: 'var(--text-primary)' }}>Performance & Trend Analytics</h3>
         <p style={{ fontSize: '12.5px', color: 'var(--text-secondary)' }}>Statistical overviews and latency distribution reports compiled over time.</p>

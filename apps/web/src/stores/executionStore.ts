@@ -132,6 +132,42 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
           const { runId, type } = message;
           if (!runId) return;
 
+          // Update pastRuns and activeRun status globally
+          if (type === 'run:started') {
+            set((state) => ({
+              pastRuns: state.pastRuns.map((r) => r.id === runId ? { ...r, status: 'running' as const } : r),
+            }));
+          } else if (type === 'run:completed') {
+            fetch(`/api/runs/${runId}`)
+              .then((res) => res.json())
+              .then((fullRun: ExecutionRun) => {
+                set((state) => {
+                  const isCurrentlyInspecting = state.activeRun?.id === runId;
+                  return {
+                    pastRuns: state.pastRuns.map((r) => r.id === runId ? fullRun : r),
+                    ...(isCurrentlyInspecting ? { activeRun: fullRun, isRunning: false } : {}),
+                  };
+                });
+              })
+              .catch(() => {
+                set((state) => {
+                  const isCurrentlyInspecting = state.activeRun?.id === runId;
+                  return {
+                    pastRuns: state.pastRuns.map((r) => r.id === runId ? { ...r, status: 'completed' as const } : r),
+                    ...(isCurrentlyInspecting ? { activeRun: state.activeRun ? { ...state.activeRun, status: 'completed' } : null, isRunning: false } : {}),
+                  };
+                });
+              });
+          } else if (type === 'run:failed') {
+            set((state) => {
+              const isCurrentlyInspecting = state.activeRun?.id === runId;
+              return {
+                pastRuns: state.pastRuns.map((r) => r.id === runId ? { ...r, status: 'failed' as const } : r),
+                ...(isCurrentlyInspecting ? { activeRun: state.activeRun ? { ...state.activeRun, status: 'failed' } : null, isRunning: false, error: message.error } : {}),
+              };
+            });
+          }
+
           const isInspecting = get().activeRun?.id === runId;
 
           // Update background job state
@@ -298,39 +334,6 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
                 });
                 break;
               }
-
-              case 'run:completed': {
-                fetch(`/api/runs/${runId}`)
-                  .then((res) => res.json())
-                  .then((fullRun: ExecutionRun) => {
-                    set({
-                      activeRun: fullRun,
-                      isRunning: false,
-                    });
-                  })
-                  .catch(() => {
-                    set({
-                      activeRun: {
-                        ...currentRun,
-                        status: 'completed',
-                      },
-                      isRunning: false,
-                    });
-                  });
-                break;
-              }
-
-              case 'run:failed': {
-                set({
-                  activeRun: {
-                    ...currentRun,
-                    status: 'failed',
-                  },
-                  isRunning: false,
-                  error: message.error,
-                });
-                break;
-              }
             }
           }
         } catch (err) {
@@ -411,7 +414,10 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
         createdAt: new Date().toISOString(),
       };
 
-      set({ activeRun: initialRun });
+      set((state) => ({
+        activeRun: initialRun,
+        pastRuns: [initialRun, ...state.pastRuns].slice(0, 50),
+      }));
 
       return runId;
     } catch (err: any) {
