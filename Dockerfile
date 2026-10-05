@@ -48,4 +48,6 @@ ENV PORT=3001
 
 EXPOSE 3001
 
-CMD ["npx", "tsx", "apps/api/src/server.ts"]
+# `docker run fortest` serves the app; `docker run fortest run /work/bucket.yaml` runs the CLI.
+ENTRYPOINT ["apps/api/node_modules/.bin/tsx", "apps/api/src/cli.ts"]
+CMD ["serve"]

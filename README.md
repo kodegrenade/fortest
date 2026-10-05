@@ -43,6 +43,9 @@ Analyze historical performance runs to catch regressions:
 ### 7. Export, Import, and Share Test Suites
 Collaborate on test suites by exporting entire buckets (including environment variables, action groups, steps, assertions, and data stores) as JSON or YAML files. Importing files automatically regenerates unique identifiers to prevent collisions with existing workspaces. You can also import existing **Postman Collections (v2.0 & v2.1)** directly to instantly bootstrap your test buckets, mapping folders, requests, variables, and auth configurations into Fortest schemas.
 
+### 8. Run Your Flows in CI
+Export a bucket and run it with the `fortest` CLI: it exits non-zero when anything fails and can write a JUnit report, so API flow tests can gate a pipeline. See [Running Tests from the Command Line and CI](#running-tests-from-the-command-line-and-ci).
+
 ---
 
 ## Designing Test Bucket Files (JSON & YAML Schema Guide)
@@ -358,7 +361,7 @@ Action Group step names can safely contain spaces:
 The project is structured as a monorepo coordinated by `pnpm` workspaces and `turborepo`:
 
 - **`apps/web`**: Single Page Application built using React, Vite, and CSS. Handles configuration, drag-and-drop timeline management, and real-time execution dashboards.
-- **`apps/api`**: Node.js Express server. Executes proxy requests, handles WebSocket streaming, parses variables/assertions, and runs concurrent load test routines.
+- **`apps/api`**: Node.js Express server and the `fortest` CLI. Both use the same execution engine (`services/executor.ts`) for variables, extractions, assertions and concurrent load runs; the server adds run storage and WebSocket streaming.
 - **`packages/types`**: Shared Zod schemas and TypeScript models representing buckets, steps, results, and metrics.
 - **`packages/utils`**: Core shared libraries (including the template string variables interpolator).
 
@@ -400,8 +403,65 @@ Use this method if you are making code changes and need hot-reloading (HMR) to r
 
 ---
 
+## Running Tests from the Command Line and CI
+
+The `fortest` CLI runs a bucket file (an exported JSON/YAML bucket, or a Postman collection) without the server or Redis, and fails with a non-zero exit code when any step or assertion fails. It runs the same engine as the web app.
+
+```bash
+pnpm fortest run tests/shop-api.yaml                         # all action groups
+pnpm fortest run tests/shop-api.yaml --group "Checkout Flow" # just one (repeatable)
+pnpm fortest run tests/shop-api.yaml --var token=$API_TOKEN  # set/override variables (e.g. CI secrets)
+pnpm fortest run tests/shop-api.yaml --junit report.xml      # JUnit XML for CI test summaries
+pnpm fortest run tests/shop-api.yaml --iterations 50 --concurrency 10   # load run
+pnpm fortest --help
+```
+
+| Exit code | Meaning |
+| :--- | :--- |
+| `0` | Every step and assertion passed |
+| `1` | A step failed (network error, HTTP 4xx/5xx, or a failed assertion) |
+| `2` | Bad input: unreadable or invalid file, unknown option, unknown `--group` |
+| `130` | Interrupted with Ctrl+C (the JUnit report is still written) |
+
+`pnpm` reports any failure as exit code `1`; run the Docker image (below) or `apps/api/node_modules/.bin/tsx apps/api/src/cli.ts` directly to see the exact code. Bucket files are the same format as the app's **Export** (see the schema guide above), so the usual workflow is: build the flow in the app, export it into your repo, run it in CI.
+
+With Docker, the image runs the CLI when given a command (and serves the app otherwise):
+
+```bash
+docker build -t fortest .
+docker run --rm -v "$PWD:/work" fortest run /work/tests/shop-api.yaml --junit /work/report.xml
+```
+
+### GitHub Actions example
+
+```yaml
+name: API tests
+on: [push, pull_request]
+
+jobs:
+  api-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with: { version: 9.15.0 }
+      - uses: actions/setup-node@v4
+        with: { node-version: 20, cache: pnpm }
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm fortest run tests/shop-api.yaml --var token=${{ secrets.API_TOKEN }} --junit fortest-report.xml
+      - uses: mikepenz/action-junit-report@v4 # shows per-step results on the run and PR
+        if: always()
+        with: { report_paths: fortest-report.xml }
+```
+
+The CLI isn't published to npm yet, so this example runs from a checkout of this repository; to test another project's API, keep its bucket files here or build the Docker image in that pipeline.
+
+---
+
 ## Workspace Commands
 
-- **Build Project**: `pnpm build` (Compiles React assets and TypeScript API files).
+- **Run the CLI**: `pnpm fortest run <file>` (see above).
+- **Run Tests**: `pnpm test` (core logic, a live end-to-end run and the CLI).
+- **Build Project**: `pnpm build` (Compiles the React assets).
 - **Run Typechecking**: `pnpm typecheck` (Runs compiler checks across all workspaces).
 - **Clean Workspace**: `pnpm clean` (Wipes build outputs and cached directories).

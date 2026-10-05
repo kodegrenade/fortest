@@ -21,17 +21,21 @@ import { evaluateAssertion } from './services/assertionService';
 import { isPostmanCollection, convertPostmanCollection } from './services/postmanConverter';
 import {
   cancelRun,
-  computeMetrics,
   failOrphanedRuns,
   getGroupRuns,
   getRunById,
   getRunSummary,
-  joinUrl,
   runGroup,
 } from './services/runnerService';
+import { computeMetrics, joinUrl } from './services/executor';
 import { getStorageAdapter } from './services/storage';
 import { saveBucket, prepareImport } from './services/bucketService';
-import { readFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
+import { fileURLToPath } from 'node:url';
 import * as yaml from 'yaml';
 
 const vars = (o: Record<string, string>, disabled: string[] = []): BucketVariable[] =>
@@ -663,4 +667,84 @@ test('applyRunEvent: events and snapshot merge in any order without losing resul
 
   assert.equal(apply(null, { type: 'run:snapshot', runId, run: start })?.id, runId);
   assert.equal(apply(null, { type: 'step:finished', runId, result: result(a) }), null);
+});
+
+// --- CLI (run as a real subprocess, like CI would) ---
+
+const execFileAsync = promisify(execFile);
+const CLI = fileURLToPath(new URL('./cli.ts', import.meta.url));
+
+/** Runs `fortest <args>`; resolves with the exit code instead of throwing on failure. */
+async function fortest(...args: string[]) {
+  try {
+    const { stdout } = await execFileAsync(process.execPath, ['--import', 'tsx', CLI, ...args], {
+      cwd: fileURLToPath(new URL('..', import.meta.url)), // apps/api, where tsx resolves
+      env: { ...process.env, NO_COLOR: '1', INIT_CWD: '' },
+    });
+    return { code: 0, out: stdout };
+  } catch (err) {
+    const e = err as { code: number; stdout: string; stderr: string };
+    return { code: e.code, out: e.stdout + e.stderr };
+  }
+}
+
+test('CLI: exit codes, --var overrides, and a JUnit report CI can read', async (t) => {
+  const baseUrl = await startTarget(t);
+  const dir = mkdtempSync(join(tmpdir(), 'fortest-cli-'));
+  t.after(() => rmSync(dir, { recursive: true }));
+  const file = join(dir, 'bucket.yaml');
+  writeFileSync(
+    file,
+    yaml.stringify({
+      name: 'CLI Bucket',
+      baseUrl,
+      variables: [{ key: 'expected', value: '200' }],
+      actionGroups: [
+        {
+          name: 'Smoke',
+          steps: [
+            {
+              name: 'OK',
+              path: '/ok',
+              assertions: [{ target: 'status', operator: 'equals', expected: '{{expected}}' }],
+            },
+          ],
+        },
+        {
+          name: 'Broken',
+          steps: [
+            { name: 'Fails', path: '/fail' },
+            { name: 'Unreachable host', path: 'http://127.0.0.1:1/nope' }, // network error ends the iteration
+            { name: 'Never runs', path: '/ok' },
+          ],
+        },
+      ],
+    }),
+  );
+
+  const pass = await fortest('run', file, '--group', 'smoke');
+  assert.equal(pass.code, 0, pass.out);
+  assert.match(pass.out, /✓ OK/);
+  assert.match(pass.out, /All 1 action group\(s\) passed/);
+
+  const overridden = await fortest('run', file, '-g', 'Smoke', '--var', 'expected=201');
+  assert.equal(overridden.code, 1, 'a --var override reaches assertions');
+  assert.match(overridden.out, /Expected "201" but got "200"/);
+
+  const report = join(dir, 'junit.xml');
+  const all = await fortest('run', file, '--junit', report);
+  assert.equal(all.code, 1);
+  assert.match(all.out, /1 of 2 action group\(s\) failed/);
+  const xmlReport = readFileSync(report, 'utf8');
+  assert.match(xmlReport, /<testsuites name="fortest" tests="4" failures="2">/);
+  assert.match(xmlReport, /name="Fails"[^>]*><failure message="HTTP 500 Internal Server Error">/);
+  assert.match(
+    xmlReport,
+    /name="Never runs"[^>]*><skipped message="not reached: an earlier step failed"\/>/,
+  );
+
+  assert.equal((await fortest('run', join(dir, 'missing.yaml'))).code, 2);
+  assert.equal((await fortest('run', file, '--iterations', '0')).code, 2);
+  assert.equal((await fortest('run', file, '--group', 'Nope')).code, 2);
+  assert.equal((await fortest('bogus')).code, 2);
 });

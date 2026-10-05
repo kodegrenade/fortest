@@ -17,7 +17,7 @@ Thank you for your interest in contributing to Fortest. We welcome contributions
 Fortest uses a monorepo structure managed by `pnpm` and `turborepo`. Follow these steps to set up your environment:
 
 ### Prerequisites
-- Node.js >= 20.0.0
+- Node.js >= 20.3.0
 - PNPM (Package manager)
 
 ### Installation
