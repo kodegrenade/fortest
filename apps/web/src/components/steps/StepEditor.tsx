@@ -165,13 +165,16 @@ export function StepEditor({ bucketId, groupId, stepId }: StepEditorProps) {
     setSaveStatus('saving');
     const next = { name, method, path, headers, params, body, auth, extractions, assertions, ...updates };
     try {
-      await updateStep(bucketId, groupId, stepId, {
+      const referencesUpdated = await updateStep(bucketId, groupId, stepId, {
         ...next,
         headers: next.headers.filter((h) => h.key.trim() !== ''),
         params: next.params.filter((p) => p.key.trim() !== ''),
         extractions: next.extractions.filter((e) => e.variableName.trim() !== ''),
       });
       setSaveStatus('saved');
+      if (referencesUpdated) {
+        addToast(`Updated ${referencesUpdated} reference${referencesUpdated === 1 ? '' : 's'} to "${next.name}" in other steps.`, 'info');
+      }
     } catch (err: any) {
       console.error('Failed to auto-save step data', err);
       setSaveStatus(null);

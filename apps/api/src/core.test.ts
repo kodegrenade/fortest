@@ -4,8 +4,17 @@ import assert from 'node:assert/strict';
 import http from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { randomUUID } from 'node:crypto';
-import { applyRunEvent, interpolate, parseFormPairs, redact, secretsOf } from '@fortest/utils';
 import {
+  applyRunEvent,
+  interpolate,
+  parseCsv,
+  parseFormPairs,
+  redact,
+  renameStepReferences,
+  secretsOf,
+} from '@fortest/utils';
+import {
+  StepSchema,
   TestBucketSchema,
   type Assertion,
   type ExecutionRun,
@@ -1086,4 +1095,94 @@ test('CLI: warns about secrets with no value; --var secrets never reach the outp
     false,
     'JUnit report is redacted',
   );
+});
+
+// --- Step renames carry references along ---
+
+test('renameStepReferences: rewrites {{steps.Old.x}} everywhere a step can hold one, nothing else', () => {
+  const now = new Date().toISOString();
+  const step = StepSchema.parse({
+    id: randomUUID(),
+    name: 'Use',
+    order: 1,
+    createdAt: now,
+    updatedAt: now,
+    path: '/users/{{steps.Log in (v2).id}}?x={{ steps.Log in (v2).id }}',
+    headers: [
+      {
+        id: randomUUID(),
+        key: 'X-Token',
+        value: 'Bearer {{steps.Log in (v2).token}}',
+        enabled: true,
+      },
+    ],
+    body: {
+      type: 'form-data',
+      content: JSON.stringify([{ key: 'u', value: '{{steps.Log in (v2).user}}', enabled: true }]),
+    },
+    auth: {
+      type: 'basic',
+      basic: { username: '{{steps.Log in (v2).user}}', password: '{{steps.Log in (v2)X.pw}}' },
+    },
+    assertions: [
+      {
+        id: randomUUID(),
+        target: 'body',
+        selector: 'id',
+        operator: 'equals',
+        expected: '{{steps.Log in (v2).id}}',
+      },
+    ],
+    params: [
+      {
+        id: randomUUID(),
+        key: 'k',
+        value: '{{steps.Log in (v2) 2.id}} {{steps.Other.id}}',
+        enabled: true,
+      },
+    ],
+  });
+
+  const { step: renamed, count } = renameStepReferences(step, 'Log in (v2)', 'Sign in');
+  assert.equal(count, 6);
+  assert.equal(
+    renamed.path,
+    '/users/{{steps.Sign in.id}}?x={{ steps.Sign in.id }}',
+    'spacing inside braces is kept',
+  );
+  assert.equal(renamed.headers[0]!.value, 'Bearer {{steps.Sign in.token}}');
+  assert.match(renamed.body.content, /\{\{steps\.Sign in\.user\}\}/);
+  assert.equal(renamed.auth.basic!.username, '{{steps.Sign in.user}}');
+  assert.equal(
+    renamed.auth.basic!.password,
+    '{{steps.Log in (v2)X.pw}}',
+    'a different step name is untouched',
+  );
+  assert.equal(
+    renamed.params[0]!.value,
+    '{{steps.Log in (v2) 2.id}} {{steps.Other.id}}',
+    'names that merely start the same are untouched',
+  );
+  assert.equal(renamed.assertions[0]!.expected, '{{steps.Sign in.id}}');
+  assert.equal(renamed.id, step.id);
+
+  const untouched = renameStepReferences(step, 'Nope', 'X');
+  assert.equal(untouched.count, 0);
+  assert.equal(untouched.step, step, 'no references: same object back');
+});
+
+// --- CSV data stores ---
+
+test('parseCsv: header keys, quoting, embedded commas/quotes/newlines, CRLF, BOM, blank lines', () => {
+  const csv =
+    '﻿email, name ,note\r\nada@x.test,"Lovelace, Ada","said ""hi""\r\ntwice"\r\n\r\nbob@x.test,Bob,\n';
+  assert.deepEqual(parseCsv(csv), [
+    { email: 'ada@x.test', name: 'Lovelace, Ada', note: 'said "hi"\r\ntwice' },
+    { email: 'bob@x.test', name: 'Bob', note: '' },
+  ]);
+  assert.deepEqual(parseCsv('a,b\n1'), [{ a: '1', b: '' }], 'short rows fill with empty strings');
+  assert.deepEqual(parseCsv('only,header\n'), []);
+  assert.deepEqual(parseCsv(''), []);
+  assert.throws(() => parseCsv('a\n"open'), /Unterminated/);
+  assert.throws(() => parseCsv('a\n1,2'), /Row 2 has more fields/);
 });

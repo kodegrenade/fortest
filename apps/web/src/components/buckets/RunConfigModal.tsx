@@ -5,6 +5,7 @@ import { useExecutionStore } from '@/stores/executionStore';
 import { useToastStore } from '@/stores/toastStore';
 import { PlayIcon, XIcon } from '@/components/common/Icons';
 import { Modal } from '@/components/common/Modal';
+import { parseCsv } from '@fortest/utils';
 
 interface RunConfigModalProps {
   bucketId: string;
@@ -38,14 +39,19 @@ export function RunConfigModal({ bucketId, groupId, onClose }: RunConfigModalPro
 
   if (!bucket || !group) return null;
 
+  // A data store is a list of records: a JSON array of objects, or a CSV whose header row names the keys.
   const handleFileContent = (fileName: string, contentStr: string) => {
     try {
-      const parsed = JSON.parse(contentStr);
+      const isCsv = fileName.toLowerCase().endsWith('.csv');
+      const parsed: unknown = isCsv ? parseCsv(contentStr) : JSON.parse(contentStr);
       if (!Array.isArray(parsed)) {
         throw new Error('JSON file must contain a top-level array of records.');
       }
-      if (parsed.some((item) => typeof item !== 'object' || item === null)) {
+      if (parsed.some((item) => typeof item !== 'object' || item === null || Array.isArray(item))) {
         throw new Error('Each item in the JSON array must be a key-value object.');
+      }
+      if (parsed.length === 0) {
+        throw new Error(isCsv ? 'The CSV has a header row but no records.' : 'The JSON array is empty.');
       }
 
       setUploadedFile({
@@ -55,8 +61,8 @@ export function RunConfigModal({ bucketId, groupId, onClose }: RunConfigModalPro
       setUploadError(null);
       addToast(`Data store loaded: ${parsed.length} records parsed successfully`, 'success');
     } catch (err: any) {
-      setUploadError(err.message || 'Failed to parse JSON file.');
-      addToast(err.message || 'Failed to parse JSON file', 'error');
+      setUploadError(err.message || 'Failed to parse the file.');
+      addToast(err.message || 'Failed to parse the file', 'error');
     }
   };
 
@@ -73,8 +79,8 @@ export function RunConfigModal({ bucketId, groupId, onClose }: RunConfigModalPro
     const file = e.dataTransfer.files?.[0];
     if (!file) return;
 
-    if (!file.name.endsWith('.json')) {
-      setUploadError('Only .json array files are supported.');
+    if (!/\.(json|csv)$/i.test(file.name)) {
+      setUploadError('Only .json (array of records) and .csv files are supported.');
       return;
     }
     file.text().then((text) => handleFileContent(file.name, text));
@@ -109,7 +115,7 @@ export function RunConfigModal({ bucketId, groupId, onClose }: RunConfigModalPro
       } else if (isRemovingAttachedStore) {
         await updateActionGroup(bucketId, groupId, { dataStore: undefined });
       } else if (useDataStore && !group.dataStore) {
-        addToast('Please upload a JSON file to drive iterations from a data store', 'error');
+        addToast('Please upload a JSON or CSV file to drive iterations from a data store', 'error');
         return;
       }
 
@@ -311,14 +317,14 @@ export function RunConfigModal({ bucketId, groupId, onClose }: RunConfigModalPro
                       type="file"
                       ref={fileInputRef}
                       style={{ display: 'none' }}
-                      accept=".json"
+                      accept=".json,.csv"
                       onChange={handleFileSelect}
                     />
                     <span style={{ fontSize: '12px', color: 'var(--text-secondary)', fontWeight: 500 }}>
-                      Drag & drop a `.json` array file, or <span style={{ color: 'var(--accent-primary)', textDecoration: 'underline' }}>browse</span>
+                      Drag & drop a `.json` or `.csv` file, or <span style={{ color: 'var(--accent-primary)', textDecoration: 'underline' }}>browse</span>
                     </span>
                     <div style={{ fontSize: '10px', color: 'var(--text-tertiary)', marginTop: '4px' }}>
-                      Must contain a JSON array of records
+                      A JSON array of records, or a CSV with a header row
                     </div>
                   </div>
                   {uploadError && (

@@ -25,7 +25,7 @@ Fortest supports a variety of comparison operators (e.g., `equals`, `contains`, 
 Configure concurrent runs to stress-test your backend or simulate multi-user behavior:
 - **Concurrency & Iterations**: Run multiple parallel execution workers using a built-in concurrent pool.
 - **Isolated Contexts**: Each worker run operates in an isolated environment variables namespace so parallel requests do not overwrite each other's extracted variables.
-- **Data-Driven Inputs**: Upload JSON or CSV data sets directly to the Action Group's data store to map records to test variables, enabling parameterized testing (e.g., running 100 concurrent requests with different test user credentials).
+- **Data-Driven Inputs**: Upload JSON or CSV data sets directly to the Action Group's data store to map records to test variables, enabling parameterized testing (e.g., running 100 concurrent requests with different test user credentials). JSON must be an array of objects; CSV needs a header row, whose column names become the variable names (standard quoting is supported, so values may contain commas, quotes or line breaks).
 
 ### 5. Stream Real-Time Execution Metrics
 Observe tests in real time via active WebSocket pipelines:
@@ -383,7 +383,8 @@ Each run is stored as a small summary (status, configuration, metrics) plus a li
 ### 4. Space-Safe Timeline Identifiers
 Action Group step names can safely contain spaces:
 - **Example**: If a step is named `Create Account`, you can reference its extracted ID in downstream headers as `{{steps.Create Account.newUserId}}`. 
-- **Constraint**: Step names must be unique within an Action Group. Defining multiple steps with the same name will cause downstream extraction variable lookups to overwrite each other.
+- **Constraint**: Step names must be unique within an Action Group (the editor enforces this).
+- **Renaming**: renaming a step in the editor updates every `{{steps.<old name>.…}}` reference in the group's other steps, and tells you how many it changed. References in hand-edited bucket files are not rewritten.
 
 ---
 
