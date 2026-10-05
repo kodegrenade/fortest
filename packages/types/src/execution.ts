@@ -7,9 +7,9 @@ export type ExecutionMode = z.infer<typeof ExecutionModeSchema>;
 
 export const ExecutionConfigSchema = z.object({
   mode: ExecutionModeSchema.default('manual'),
-  iterations: z.number().int().positive().default(1), // number of times to run the action group
-  concurrency: z.number().int().positive().default(1), // how many iterations run in parallel
-  delayBetweenSteps: z.number().int().min(0).default(0), // ms delay between steps within one iteration
+  iterations: z.number().int().positive().max(10000).default(1), // number of times to run the action group
+  concurrency: z.number().int().positive().max(100).default(1), // how many iterations run in parallel
+  delayBetweenSteps: z.number().int().min(0).max(60000).default(0), // ms delay between steps within one iteration
   useDataStore: z.boolean().default(false), // whether to drive iterations from a data store
 });
 export type ExecutionConfig = z.infer<typeof ExecutionConfigSchema>;

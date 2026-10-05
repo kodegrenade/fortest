@@ -37,10 +37,6 @@ interface ExecutionState {
 
 const getWsUrl = (): string => {
   const loc = window.location;
-  // If in dev (Vite runs on 5173, backend on 3001)
-  if (loc.port === '5173') {
-    return 'ws://localhost:3001/ws';
-  }
   const protocol = loc.protocol === 'https:' ? 'wss:' : 'ws:';
   return `${protocol}//${loc.host}/ws`;
 };
@@ -365,7 +361,7 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
       });
 
       if (!res.ok) {
-        throw new Error('Failed to initiate execution run');
+        throw new Error((await res.json().catch(() => null))?.message || 'Failed to initiate execution run');
       }
 
       const { runId } = await res.json();

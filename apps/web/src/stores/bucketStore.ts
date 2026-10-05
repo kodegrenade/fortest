@@ -87,7 +87,7 @@ export const useBucketStore = create<BucketState>((set, get) => ({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(data),
       });
-      if (!res.ok) throw new Error('Failed to update bucket');
+      if (!res.ok) throw new Error((await res.json().catch(() => null))?.message || 'Failed to update bucket');
       await get().loadBuckets();
     } catch (err: any) {
       const errMsg = err.message || 'Failed to update bucket';

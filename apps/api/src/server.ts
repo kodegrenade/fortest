@@ -4,8 +4,11 @@ import { connectRedis, disconnectRedis } from './services/redis';
 import { createStorageAdapter, getStorageMode } from './services/storage';
 import { subscribeToRun, unsubscribeFromRun, clearClientSubscriptions } from './services/websocketService';
 import { getRunById } from './services/runnerService';
+import { isLocalRequest } from './middleware/security';
 
 const PORT = parseInt(process.env['PORT'] ?? '3001', 10);
+// Loopback only by default; Docker sets HOST=0.0.0.0 and publishes the port on 127.0.0.1 instead.
+const HOST = process.env['HOST'] ?? '127.0.0.1';
 
 async function start(): Promise<void> {
   // Attempt Redis connection (non-fatal if it fails)
@@ -15,8 +18,8 @@ async function start(): Promise<void> {
   createStorageAdapter();
   console.log(`[Server] Storage mode: ${getStorageMode()}`);
 
-  const server = app.listen(PORT, () => {
-    console.log(`[Server] Fortest API running on http://localhost:${PORT}`);
+  const server = app.listen(PORT, HOST, () => {
+    console.log(`[Server] Fortest API running on http://${HOST}:${PORT}`);
     console.log(`[Server] Health check: http://localhost:${PORT}/api/health`);
   });
 
@@ -24,8 +27,8 @@ async function start(): Promise<void> {
   const wss = new WebSocketServer({ noServer: true });
 
   server.on('upgrade', (request, socket, head) => {
-    const url = new URL(request.url || '', `http://${request.headers.host || 'localhost'}`);
-    if (url.pathname === '/ws') {
+    const url = new URL(request.url || '', 'http://localhost');
+    if (url.pathname === '/ws' && isLocalRequest(request.headers)) {
       wss.handleUpgrade(request, socket, head, (ws) => {
         wss.emit('connection', ws, request);
       });

@@ -172,9 +172,10 @@ export function RunConfigModal({ isOpen, bucketId, groupId, onClose }: RunConfig
                 type="number"
                 className="input"
                 min={1}
+                max={10000}
                 value={iterations}
                 onChange={(e) => {
-                  const val = Math.max(1, parseInt(e.target.value) || 1);
+                  const val = Math.min(10000, Math.max(1, parseInt(e.target.value) || 1));
                   setIterations(val);
                   if (val === 1) setConcurrency(1);
                 }}
@@ -190,9 +191,9 @@ export function RunConfigModal({ isOpen, bucketId, groupId, onClose }: RunConfig
                 type="number"
                 className="input"
                 min={1}
-                max={50}
+                max={100}
                 value={concurrency}
-                onChange={(e) => setConcurrency(Math.min(50, Math.max(1, parseInt(e.target.value) || 1)))}
+                onChange={(e) => setConcurrency(Math.min(100, Math.max(1, parseInt(e.target.value) || 1)))}
                 disabled={iterations === 1}
                 placeholder="1"
               />
@@ -207,8 +208,9 @@ export function RunConfigModal({ isOpen, bucketId, groupId, onClose }: RunConfig
                 type="number"
                 className="input"
                 min={0}
+                max={60000}
                 value={delay}
-                onChange={(e) => setDelay(Math.max(0, parseInt(e.target.value) || 0))}
+                onChange={(e) => setDelay(Math.min(60000, Math.max(0, parseInt(e.target.value) || 0)))}
               />
             </div>
 

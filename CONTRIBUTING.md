@@ -33,7 +33,7 @@ Run the concurrent development servers for both the React frontend and the Expre
 pnpm dev
 ```
 - The frontend will be available at `http://localhost:5173`.
-- The backend API server will run at `http://localhost:3000`.
+- The backend API server will run at `http://localhost:3001`.
 
 ---
 

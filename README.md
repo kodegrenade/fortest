@@ -330,10 +330,13 @@ When Fortest resolves template variables (e.g., `{{placeholder}}`) during execut
 
 *Note: Unresolved placeholders are left as-is (e.g., `{{missingVar}}` remains in the string), allowing you to easily identify configuration errors in request payloads.*
 
-### 2. Server-Side Request Forgery (SSRF) Protection
-To prevent server abuse in production environments, the API backend includes an active IP security filter:
-- **Default Production Mode**: In production (`NODE_ENV=production`), the backend blocks all HTTP proxy requests targeting loopback, local network, or private IP ranges (e.g., `localhost`, `127.0.0.1`, `10.0.0.0/8`, `192.168.0.0/16`).
-- **Development Bypass**: To bypass this filter when running locally or inside internal Docker networks, you must inject the environment variable `ALLOW_PRIVATE_IPS=true` into the API container or process.
+### 2. Local-Only Access
+Fortest is a local tool and can send requests to any address, including `localhost` and private networks (testing local APIs is the main use case). To keep that power on your machine only:
+- **Loopback binding**: The API listens on `127.0.0.1` (override with `HOST`). Docker Compose publishes ports on `127.0.0.1` only, for both the app and Redis.
+- **Host / Origin check**: Requests and WebSocket connections whose `Host` or `Origin` isn't `localhost`, `127.0.0.1` or `[::1]` are rejected with `403`. This blocks other websites open in your browser (including DNS-rebinding attacks) from reading your buckets or running requests through Fortest.
+- **Run limits**: A single run accepts at most `10,000` iterations, `100` concurrent workers and a `60,000` ms delay between steps.
+
+There is no authentication. Do not expose Fortest on a public or shared network.
 
 ### 3. Run History Capping and Redis Memory Management
 To keep the Redis database footprint small, Fortest enforces a strict **50-run capped retention policy** per Action Group:

@@ -2,7 +2,6 @@ import crypto from 'crypto';
 import { getBucketById } from './bucketService';
 import { getStorageAdapter } from './storage';
 import { interpolate } from '@fortest/utils';
-import { validateTargetUrl } from '../middleware/security';
 import { extractValue } from './extractionService';
 import { evaluateAssertions } from './assertionService';
 import type {
@@ -191,13 +190,7 @@ export async function runGroup(
         }
         finalUrl += finalPath;
 
-        // 2. Validate URL against SSRF
-        const isSafeUrl = await validateTargetUrl(finalUrl);
-        if (!isSafeUrl) {
-          throw new Error(`SSRF Blocked: URL target is loopback/private IP: ${finalUrl}`);
-        }
-
-        // 3. Resolve request headers
+        // 2. Resolve request headers
         const resolvedHeaders: Record<string, string> = {};
         for (const h of step.headers || []) {
           if (!h.enabled) continue;
@@ -215,13 +208,13 @@ export async function runGroup(
           resolvedHeaders['content-type'] = 'application/json';
         }
 
-        // 4. Resolve Body Content
+        // 3. Resolve Body Content
         finalBody = undefined;
         if (step.body && step.body.type !== 'none') {
           finalBody = interpolate(step.body.content, iterVariables).resolved;
         }
 
-        // 5. Execute HTTP Request
+        // 4. Execute HTTP Request
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), 10000);
 
@@ -258,7 +251,7 @@ export async function runGroup(
           contentType,
         };
 
-        // 6. Perform Extractions
+        // 5. Perform Extractions
         const extractedData: Record<string, any> = {};
         for (const rule of step.extractions || []) {
           if (!rule.variableName || !rule.selector) continue;
@@ -273,10 +266,10 @@ export async function runGroup(
           });
         }
 
-        // 7. Evaluate Assertions
+        // 6. Evaluate Assertions
         const assertionResults = evaluateAssertions(proxyResponse, step.assertions || []);
 
-        // 8. Construct Step Result
+        // 7. Construct Step Result
         const stepResult: StepResult = {
           stepId: step.id,
           stepName: step.name,

@@ -72,16 +72,14 @@ export async function updateBucket(id: string, updates: Partial<TestBucket>): Pr
   if (!existingData) return null;
 
   const existing = JSON.parse(existingData) as TestBucket;
-  const updated: TestBucket = {
+  // Store the parsed result, not the raw merge: parsing strips unknown keys and fills defaults.
+  const updated = TestBucketSchema.parse({
     ...existing,
     ...updates,
     id, // protect id
     createdAt: existing.createdAt, // protect createdAt
     updatedAt: new Date().toISOString(),
-  };
-
-  // Validate
-  TestBucketSchema.parse(updated);
+  });
 
   await adapter.set(getBucketKey(id), JSON.stringify(updated));
   return updated;

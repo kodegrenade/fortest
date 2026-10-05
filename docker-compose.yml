@@ -3,7 +3,7 @@ services:
     image: redis/redis-stack-server:latest
     container_name: fortest-redis
     ports:
-      - "6379:6379"
+      - "127.0.0.1:6379:6379"
     volumes:
       - fortest-redis-data:/data
     environment:
@@ -19,11 +19,11 @@ services:
     build: .
     container_name: fortest-app
     ports:
-      - "3001:3001"
+      - "127.0.0.1:3001:3001"
     environment:
       - NODE_ENV=production
       - REDIS_URL=redis://fortest-redis:6379
-      - ALLOW_PRIVATE_IPS=true
+      - HOST=0.0.0.0
       - PORT=3001
     depends_on:
       redis:
