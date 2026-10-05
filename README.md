@@ -81,6 +81,14 @@ Shared environment parameters that can be interpolated in any URL, header, query
 | `key` | String | **Required** | The variable placeholder label. |
 | `value` | String | **Required** | The value assigned to the variable. |
 | `enabled` | Boolean | Optional | Determines if the variable is active. Default: `true`. |
+| `secret` | Boolean | Optional | Marks a secret (see below). Default: `false`. |
+
+#### Secret variables
+Mark tokens, passwords and keys as secret (the lock icon next to a variable, in the bucket or an environment):
+- **Masked** in the app, with a button to reveal; autocomplete shows "Secret value" instead of the value.
+- **Left out of exports**: the exported file keeps the variable and its `secret: true` flag with an empty value, so bucket files are safe to commit. Supply the value in CI with `--var` (the CLI warns about any secret left without one).
+- **Redacted from run results**: wherever a secret's value would appear (URL, request or response body, headers, errors, assertion messages, extracted values) it is stored and shown as `[secret:name]`, in the app, run history, CLI output and JUnit reports. Requests themselves use the real value. Values shorter than 4 characters aren't redacted.
+- Secrets are still stored in plain text in your local Redis, like everything else in Fortest.
 
 ---
 
@@ -434,7 +442,7 @@ The `fortest` CLI runs a bucket file (an exported JSON/YAML bucket, or a Postman
 pnpm fortest run tests/shop-api.yaml                         # all action groups
 pnpm fortest run tests/shop-api.yaml --group "Checkout Flow" # just one (repeatable)
 pnpm fortest run tests/shop-api.yaml --env staging          # pick an environment ("none" for none)
-pnpm fortest run tests/shop-api.yaml --var token=$API_TOKEN  # set/override variables (e.g. CI secrets)
+pnpm fortest run tests/shop-api.yaml --var token=$API_TOKEN  # set/override variables, e.g. secrets (redacted in the output)
 pnpm fortest run tests/shop-api.yaml --junit report.xml      # JUnit XML for CI test summaries
 pnpm fortest run tests/shop-api.yaml --iterations 50 --concurrency 10   # load run
 pnpm fortest --help

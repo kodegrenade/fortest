@@ -170,3 +170,14 @@ export function prepareImport(input: unknown): TestBucket {
     })),
   });
 }
+
+/** A bucket as exported: secret variables keep their key and flag but lose their value. */
+export function withoutSecretValues(bucket: TestBucket): TestBucket {
+  const blank = (vars: TestBucket['variables']) =>
+    vars.map((v) => (v.secret ? { ...v, value: '' } : v));
+  return {
+    ...bucket,
+    variables: blank(bucket.variables),
+    environments: bucket.environments.map((env) => ({ ...env, variables: blank(env.variables) })),
+  };
+}

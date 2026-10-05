@@ -18,6 +18,7 @@ interface PostmanKV {
   value?: string;
   description?: string;
   disabled?: boolean;
+  type?: string; // variables: "secret" for Postman secret variables
 }
 
 // Params live under the type's name: auth.bearer, auth.basic, auth.apikey
@@ -104,6 +105,9 @@ export function convertPostmanCollection(data: PostmanCollection): ConversionRes
   const warnings: string[] = [];
   const now = new Date().toISOString();
   const baseUrl = extractCommonBaseUrl(data.item);
+  const secretKeys = new Set(
+    (data.variable ?? []).filter((v) => v.type === 'secret').map((v) => v.key),
+  );
 
   const groups: Pick<ActionGroup, 'name' | 'description' | 'steps'>[] = [];
   const ungrouped: Step[] = [];
@@ -135,7 +139,9 @@ export function convertPostmanCollection(data: PostmanCollection): ConversionRes
     name: data.info.name || 'Postman Import',
     baseUrl,
     auth: convertAuth(data.auth, warnings, 'Collection'),
-    variables: toKeyValues(data.variable),
+    variables: toKeyValues(data.variable).map((v) =>
+      secretKeys.has(v.key) ? { ...v, secret: true } : v,
+    ),
     environments: [],
     activeEnvironmentId: null,
     actionGroups: groups

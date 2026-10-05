@@ -1,6 +1,14 @@
 import { randomUUID } from 'node:crypto';
 import { setTimeout as sleep } from 'node:timers/promises';
-import { effectiveVariables, interpolate, isFailedResult, parseFormPairs } from '@fortest/utils';
+import {
+  effectiveVariables,
+  interpolate,
+  isFailedResult,
+  parseFormPairs,
+  redact,
+  secretsOf,
+  type Secret,
+} from '@fortest/utils';
 import { extractValue, stringify } from './extractionService';
 import { evaluateAssertions } from './assertionService';
 import type {
@@ -22,6 +30,29 @@ import type {
 const MAX_STORED_BODY = 1024 * 1024; // characters
 const capBody = (body: string) =>
   body.length > MAX_STORED_BODY ? `${body.slice(0, MAX_STORED_BODY)}\n…[truncated at 1 MB]` : body;
+
+/** A result with every secret value replaced by [secret:key], everywhere it could surface. */
+function redactResult(r: StepResult, secrets: Secret[]): StepResult {
+  if (!secrets.length) return r;
+  const x = (text: string) => redact(text, secrets);
+  const xValues = <T>(obj: Record<string, T>) =>
+    Object.fromEntries(Object.entries(obj).map(([k, v]) => [k, typeof v === 'string' ? x(v) : v]));
+  return {
+    ...r,
+    url: x(r.url),
+    requestBody: r.requestBody && x(r.requestBody),
+    responseBody: x(r.responseBody),
+    responseHeaders: xValues(r.responseHeaders) as Record<string, string>,
+    extractedData: xValues(r.extractedData),
+    error: r.error && x(r.error),
+    assertions: r.assertions.map((a) => ({
+      ...a,
+      actual: x(a.actual),
+      expected: x(a.expected),
+      message: x(a.message),
+    })),
+  };
+}
 
 /** Fills in defaults; more than one iteration means a load run. */
 export function resolveConfig(input: Partial<ExecutionConfig> = {}): ExecutionConfig {
@@ -114,7 +145,15 @@ export interface ExecuteOutcome {
 export async function executeGroup(
   bucket: TestBucket,
   group: ActionGroup,
-  { runId, config, signal: cancelled, emit, onResult, environmentId, overrides = [] }: ExecuteOptions,
+  {
+    runId,
+    config,
+    signal: cancelled,
+    emit,
+    onResult,
+    environmentId,
+    overrides = [],
+  }: ExecuteOptions,
 ): Promise<ExecuteOutcome> {
   emit({
     type: 'run:started',
@@ -126,7 +165,11 @@ export async function executeGroup(
   const startTime = performance.now();
   const sortedSteps = [...group.steps].sort((a, b) => a.order - b.order);
   const records = config.useDataStore ? (group.dataStore?.records ?? []) : [];
-  const baseVariables = effectiveVariables(bucket, environmentId === undefined ? bucket.activeEnvironmentId : environmentId);
+  const baseVariables = effectiveVariables(
+    bucket,
+    environmentId === undefined ? bucket.activeEnvironmentId : environmentId,
+  );
+  const secrets = secretsOf([...baseVariables, ...overrides]);
 
   // Metrics only need these fields, so the run's response bodies never pile up in memory.
   const metricRows: Parameters<typeof computeMetrics>[0] = [];
@@ -134,7 +177,8 @@ export async function executeGroup(
   const recordResult = async (result: StepResult) => {
     const { status, responseTime, responseSize, error, assertions } = result;
     metricRows.push({ status, responseTime, responseSize, error, assertions });
-    const stored = retainBodies(result, config);
+    // Redacted before anything keeps or shows it (storage, live events, CLI output, JUnit).
+    const stored = retainBodies(redactResult(result, secrets), config);
     await onResult?.(stored);
     emit({ type: 'step:finished', runId, result: stored });
   };

@@ -55,7 +55,8 @@ router.get('/:id/export', async (req, res) => {
   const filename = `${bucket.name.toLowerCase().replace(/[^a-z0-9]+/g, '-')}-export.${isYaml ? 'yaml' : 'json'}`;
   res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
   res.setHeader('Content-Type', isYaml ? 'application/yaml' : 'application/json');
-  res.send(isYaml ? yaml.stringify(bucket) : JSON.stringify(bucket, null, 2));
+  const exported = bucketService.withoutSecretValues(bucket);
+  res.send(isYaml ? yaml.stringify(exported) : JSON.stringify(exported, null, 2));
 });
 
 router.post('/import', async (req, res) => {

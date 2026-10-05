@@ -10,6 +10,10 @@ import {
   XIcon,
   SaveIcon,
   ClipboardIcon,
+  EyeIcon,
+  EyeOffIcon,
+  LockIcon,
+  LockOpenIcon,
 } from '@/components/common/Icons';
 import { AuthFields } from '@/components/common/AuthFields';
 import { ActionGroupDialogs, type GroupDialogState } from '@/components/common/ActionGroupDialogs';
@@ -34,6 +38,7 @@ export function BucketDetail() {
   const [auth, setAuth] = useState<AuthConfig>({ type: 'none' });
   const [variables, setVariables] = useState<BucketVariable[]>([]);
   const [environments, setEnvironments] = useState<Environment[]>([]);
+  const [revealed, setRevealed] = useState<Set<string>>(new Set()); // secret variables shown in clear
   // Which variable list is being edited: 'shared' (the bucket's own) or an environment id.
   const [scope, setScope] = useState('shared');
   const [isConfigExpanded, setIsConfigExpanded] = useState(true);
@@ -308,17 +313,51 @@ export function BucketDetail() {
                         value={variable.key}
                         onChange={(e) => handleVariableChange(variable.id, 'key', e.target.value)}
                       />
-                      <input
-                        type="text"
-                        className="input"
-                        placeholder="Value"
-                        value={variable.value}
-                        onChange={(e) => handleVariableChange(variable.id, 'value', e.target.value)}
-                      />
+                      {/* Sized like the key input (width: 100%) so both columns share the row equally */}
+                      <div style={{ position: 'relative', width: '100%', minWidth: 0, display: 'flex' }}>
+                        <input
+                          type={variable.secret && !revealed.has(variable.id) ? 'password' : 'text'}
+                          className="input"
+                          placeholder={variable.secret ? 'Secret value (or pass with --var in CI)' : 'Value'}
+                          autoComplete="off"
+                          style={{ width: '100%', ...(variable.secret ? { paddingRight: '32px' } : {}) }}
+                          value={variable.value}
+                          onChange={(e) => handleVariableChange(variable.id, 'value', e.target.value)}
+                        />
+                        {variable.secret && (
+                          <button
+                            type="button"
+                            className="btn btn--icon"
+                            style={{ position: 'absolute', right: '2px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-tertiary)' }}
+                            title={revealed.has(variable.id) ? 'Hide value' : 'Show value'}
+                            onClick={() => {
+                              const next = new Set(revealed);
+                              if (!next.delete(variable.id)) next.add(variable.id);
+                              setRevealed(next);
+                            }}
+                          >
+                            {revealed.has(variable.id) ? <EyeOffIcon size={14} /> : <EyeIcon size={14} />}
+                          </button>
+                        )}
+                      </div>
                       <button
                         type="button"
                         className="btn btn--icon"
-                        style={{ color: 'var(--text-tertiary)' }}
+                        style={{ color: variable.secret ? 'var(--accent-primary)' : 'var(--text-tertiary)', flexShrink: 0 }}
+                        aria-pressed={!!variable.secret}
+                        title={
+                          variable.secret
+                            ? 'Secret: masked, left out of exports, redacted from run results. Click to make it a normal variable.'
+                            : 'Mark as secret (masked, left out of exports, redacted from run results)'
+                        }
+                        onClick={() => handleVariableChange(variable.id, 'secret', !variable.secret)}
+                      >
+                        {variable.secret ? <LockIcon size={14} /> : <LockOpenIcon size={14} />}
+                      </button>
+                      <button
+                        type="button"
+                        className="btn btn--icon"
+                        style={{ color: 'var(--text-tertiary)', flexShrink: 0 }}
                         onClick={() => handleRemoveVariable(variable.id)}
                       >
                         <XIcon size={14} />

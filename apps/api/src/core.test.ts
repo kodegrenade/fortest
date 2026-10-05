@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import http from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { randomUUID } from 'node:crypto';
-import { applyRunEvent, interpolate, parseFormPairs } from '@fortest/utils';
+import { applyRunEvent, interpolate, parseFormPairs, redact, secretsOf } from '@fortest/utils';
 import {
   TestBucketSchema,
   type Assertion,
@@ -29,7 +29,12 @@ import {
 } from './services/runnerService';
 import { computeMetrics, executeGroup, joinUrl, resolveConfig } from './services/executor';
 import { getStorageAdapter } from './services/storage';
-import { saveBucket, prepareImport, getBucketById } from './services/bucketService';
+import {
+  saveBucket,
+  prepareImport,
+  getBucketById,
+  withoutSecretValues,
+} from './services/bucketService';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -179,7 +184,10 @@ test('Postman import: realistic v2.1 collection maps to a valid, runnable bucket
       name: 'Shop API',
       schema: 'https://schema.getpostman.com/json/collection/v2.1.0/collection.json',
     },
-    variable: [{ key: 'baseUrl', value: 'https://api.shop.test' }],
+    variable: [
+      { key: 'baseUrl', value: 'https://api.shop.test' },
+      { key: 'token', value: 'pm-secret', type: 'secret' },
+    ],
     auth: { type: 'bearer', bearer: [{ key: 'token', value: '{{token}}', type: 'string' }] },
     item: [
       {
@@ -242,6 +250,14 @@ test('Postman import: realistic v2.1 collection maps to a valid, runnable bucket
   TestBucketSchema.parse(bucket); // the import route rejects anything that fails this
 
   assert.deepEqual(bucket.auth, { type: 'bearer', bearer: { token: '{{token}}' } });
+  assert.deepEqual(
+    bucket.variables.map((v) => [v.key, !!v.secret]),
+    [
+      ['baseUrl', false],
+      ['token', true],
+    ],
+    'Postman secret variables stay secret',
+  );
   assert.deepEqual(
     bucket.actionGroups.map((g) => g.name),
     ['Users', 'Ungrouped Requests'],
@@ -486,7 +502,7 @@ test('runGroup: chains an extracted token across steps, one isolated context per
 
 // --- Run storage, body retention, cancellation ---
 
-/** A local API for run tests: /ok, /fail (500) and /slow (200 ms). */
+/** A local API for run tests: /ok, /fail (500), /slow (200 ms) and /echo (what it received). */
 async function startTarget(t: { after: (fn: () => void) => void }): Promise<string> {
   const server = http.createServer((req, res) => {
     res.setHeader('content-type', 'application/json');
@@ -495,6 +511,12 @@ async function startTarget(t: { after: (fn: () => void) => void }): Promise<stri
       res.end('{"error":"boom"}');
     } else if (req.url === '/slow') {
       setTimeout(() => res.end('{"slow":true}'), 200);
+    } else if (req.url?.startsWith('/echo')) {
+      let body = '';
+      req.on('data', (d) => (body += d));
+      req.on('end', () =>
+        res.end(JSON.stringify({ url: req.url, auth: req.headers.authorization, body })),
+      );
     } else {
       res.end('{"ok":true}');
     }
@@ -899,4 +921,169 @@ test('environments: buckets stored before environments existed load with default
   await getStorageAdapter().set(`bucket:${id}`, JSON.stringify(legacy));
   const bucket = (await getBucketById(id))!;
   assert.deepEqual([bucket.environments, bucket.activeEnvironmentId], [[], null]);
+});
+
+// --- Secret variables ---
+
+test('secrets: values to redact come from secret keys, wherever the value is set', () => {
+  const v = (key: string, value: string, secret = false) => ({
+    id: randomUUID(),
+    key,
+    value,
+    enabled: true,
+    secret,
+  });
+  const secrets = secretsOf([
+    v('token', 'shared-token', true),
+    v('token', 'staging-token'), // environment or --var override of a secret key: still secret
+    v('pin', '12', true), // too short to redact safely
+    v('host', 'api.test'), // not secret
+  ]);
+  assert.deepEqual(
+    secrets.map((s) => s.value),
+    ['staging-token', 'shared-token'],
+  );
+  assert.equal(
+    redact('Bearer staging-token for api.test, pin 12', secrets),
+    'Bearer [secret:token] for api.test, pin 12',
+  );
+});
+
+test('secrets: requests use real values, but nothing a run keeps or shows contains them', async (t) => {
+  const baseUrl = await startTarget(t);
+  const token = 's3cr3t-token-value';
+  const now = new Date().toISOString();
+  const bucket = TestBucketSchema.parse({
+    id: randomUUID(),
+    name: 'secrets',
+    baseUrl,
+    createdAt: now,
+    updatedAt: now,
+    variables: [{ id: randomUUID(), key: 'token', value: token, enabled: true, secret: true }],
+    actionGroups: [
+      {
+        id: randomUUID(),
+        name: 'g',
+        order: 0,
+        createdAt: now,
+        updatedAt: now,
+        steps: [
+          {
+            id: randomUUID(),
+            name: 'echo',
+            order: 0,
+            method: 'POST',
+            path: '/echo?key={{token}}',
+            auth: { type: 'bearer', bearer: { token: '{{token}}' } },
+            body: { type: 'json', content: '{"token":"{{token}}"}' },
+            extractions: [
+              { id: randomUUID(), variableName: 'auth', source: 'body', selector: 'auth' },
+            ],
+            assertions: [
+              {
+                id: randomUUID(),
+                target: 'body',
+                selector: 'auth',
+                operator: 'equals',
+                expected: 'Bearer {{token}}',
+              },
+              {
+                id: randomUUID(),
+                target: 'body',
+                selector: 'auth',
+                operator: 'equals',
+                expected: 'wrong',
+              },
+            ],
+            createdAt: now,
+            updatedAt: now,
+          },
+        ],
+      },
+    ],
+  });
+
+  const events: RunEvent[] = [];
+  let stored: StepResult | undefined;
+  await executeGroup(bucket, bucket.actionGroups[0]!, {
+    runId: randomUUID(),
+    config: resolveConfig(),
+    signal: new AbortController().signal,
+    emit: (e) => events.push(e),
+    onResult: (r) => void (stored = r),
+  });
+
+  assert.equal(
+    stored!.assertions[0]!.passed,
+    true,
+    'the server got the real token (and assertions compare real values)',
+  );
+  assert.equal(JSON.stringify(stored).includes(token), false, 'stored result is redacted');
+  assert.equal(JSON.stringify(events).includes(token), false, 'live events are redacted');
+  assert.match(stored!.url, /key=\[secret:token\]/);
+  assert.equal(stored!.extractedData['auth'], 'Bearer [secret:token]');
+  assert.match(stored!.assertions[1]!.message, /but got "Bearer \[secret:token\]"/);
+
+  const exported = withoutSecretValues({
+    ...bucket,
+    environments: [
+      {
+        id: randomUUID(),
+        name: 'prod',
+        variables: [
+          { id: randomUUID(), key: 'token', value: 'prod-token', enabled: true, secret: true },
+        ],
+      },
+    ],
+  });
+  assert.deepEqual(
+    [exported.variables[0]!.value, exported.variables[0]!.secret],
+    ['', true],
+    'exports keep the flag, not the value',
+  );
+  assert.equal(exported.environments[0]!.variables[0]!.value, '');
+});
+
+test('CLI: warns about secrets with no value; --var secrets never reach the output', async (t) => {
+  const baseUrl = await startTarget(t);
+  const dir = mkdtempSync(join(tmpdir(), 'fortest-secret-'));
+  t.after(() => rmSync(dir, { recursive: true }));
+  const file = join(dir, 'b.yaml');
+  writeFileSync(
+    file,
+    yaml.stringify({
+      name: 'Secret Bucket',
+      baseUrl,
+      variables: [{ key: 'token', value: '', secret: true }], // as exported
+      actionGroups: [
+        {
+          name: 'g',
+          steps: [
+            {
+              name: 'echo',
+              method: 'POST',
+              path: '/echo?key={{token}}',
+              assertions: [
+                { target: 'body', selector: 'url', operator: 'equals', expected: 'nope' },
+              ], // fails, printing the URL
+            },
+          ],
+        },
+      ],
+    }),
+  );
+
+  const missing = await fortest('run', file);
+  assert.match(missing.out, /secret variable\(s\) without a value: token/);
+
+  const report = join(dir, 'junit.xml');
+  const supplied = await fortest('run', file, '--var', 'token=ci-secret-123', '--junit', report);
+  assert.doesNotMatch(supplied.out, /without a value/);
+  assert.match(supplied.out, /\[secret:token\]/);
+  assert.equal(supplied.out.includes('ci-secret-123'), false, 'console output is redacted');
+  assert.equal(
+    readFileSync(report, 'utf8').includes('ci-secret-123'),
+    false,
+    'JUnit report is redacted',
+  );
 });

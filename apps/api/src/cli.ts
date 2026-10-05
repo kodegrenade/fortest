@@ -12,7 +12,7 @@ import {
   type StepResult,
   type TestBucket,
 } from '@fortest/types';
-import { activeEnvironment, isFailedResult } from '@fortest/utils';
+import { activeEnvironment, effectiveVariables, isFailedResult } from '@fortest/utils';
 import { prepareImport } from './services/bucketService';
 import { isPostmanCollection, convertPostmanCollection } from './services/postmanConverter';
 import { executeGroup, resolveConfig, type ExecuteOutcome } from './services/executor';
@@ -90,6 +90,21 @@ function pickEnvironment(bucket: TestBucket, name: string | undefined) {
     );
   }
   return env;
+}
+
+/** Exports leave secret values empty, so a CI run must supply them; say which are missing. */
+function warnMissingSecrets(variables: TestBucket['variables']) {
+  const finalValue = new Map(variables.filter((v) => v.enabled).map((v) => [v.key, v.value]));
+  const missing = [...new Set(variables.filter((v) => v.secret).map((v) => v.key))].filter(
+    (k) => !finalValue.get(k),
+  );
+  if (missing.length) {
+    console.warn(
+      yellow(
+        `warning: secret variable(s) without a value: ${missing.join(', ')}. Pass them with --var KEY=VALUE.`,
+      ),
+    );
+  }
 }
 
 /** Why a result failed, as short lines. */
@@ -221,6 +236,7 @@ async function run(args: string[]): Promise<number> {
   const runs: GroupRun[] = [];
   for (const bucket of loadBuckets(positionals[0]!)) {
     const environment = pickEnvironment(bucket, values.env);
+    warnMissingSecrets([...effectiveVariables(bucket, environment?.id ?? null), ...overrides]);
     const groups = [...bucket.actionGroups]
       .sort((a, b) => a.order - b.order)
       .filter((g) => !wanted.length || wanted.includes(g.name.toLowerCase()));

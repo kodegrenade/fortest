@@ -106,6 +106,8 @@ export const BucketVariableSchema = z.object({
   key: z.string().min(1),
   value: z.string(),
   enabled: z.boolean().default(true),
+  // Masked in the app, blanked in exports, redacted from run results (supply it in CI with --var).
+  secret: z.boolean().optional(),
 });
 export type BucketVariable = z.infer<typeof BucketVariableSchema>;
 

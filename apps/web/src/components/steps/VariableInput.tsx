@@ -55,7 +55,7 @@ export function VariableInput({
       label: v.key,
       source: 'env',
       sourceName: 'Global',
-      detail: v.value ? `Value: ${v.value}` : 'Empty',
+      detail: v.secret ? 'Secret value' : v.value ? `Value: ${v.value}` : 'Empty',
     });
   }
 

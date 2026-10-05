@@ -7,12 +7,16 @@ import {
   Clipboard,
   Clock,
   Copy,
+  Eye,
+  EyeOff,
   House,
   Inbox,
   Info,
   LayoutGrid,
   Layers,
   List,
+  Lock,
+  LockOpen,
   Monitor,
   Moon,
   Play,
@@ -38,12 +42,16 @@ export const ClipboardIcon = icon(Clipboard);
 export const ClockIcon = icon(Clock);
 export const CopyIcon = icon(Copy);
 export const EditIcon = icon(SquarePen);
+export const EyeIcon = icon(Eye);
+export const EyeOffIcon = icon(EyeOff);
 export const GridIcon = icon(LayoutGrid);
 export const HomeIcon = icon(House);
 export const InboxIcon = icon(Inbox);
 export const InfoIcon = icon(Info);
 export const LayersIcon = icon(Layers);
 export const ListIcon = icon(List);
+export const LockIcon = icon(Lock);
+export const LockOpenIcon = icon(LockOpen);
 export const MonitorIcon = icon(Monitor);
 export const MoonIcon = icon(Moon);
 export const PlayIcon = icon(Play);
