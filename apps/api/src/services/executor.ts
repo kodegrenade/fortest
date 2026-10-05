@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { setTimeout as sleep } from 'node:timers/promises';
-import { interpolate, isFailedResult, parseFormPairs } from '@fortest/utils';
+import { effectiveVariables, interpolate, isFailedResult, parseFormPairs } from '@fortest/utils';
 import { extractValue, stringify } from './extractionService';
 import { evaluateAssertions } from './assertionService';
 import type {
@@ -99,6 +99,10 @@ export interface ExecuteOptions {
   emit: (event: RunEvent) => void;
   /** Called with each (retained) result before its step:finished event, e.g. to persist it. */
   onResult?: (result: StepResult) => Promise<void> | void;
+  /** Environment to use: undefined = the bucket's active one, null = none. */
+  environmentId?: string | null;
+  /** Variables that beat everything else, e.g. the CLI's --var. */
+  overrides?: BucketVariable[];
 }
 
 export interface ExecuteOutcome {
@@ -110,7 +114,7 @@ export interface ExecuteOutcome {
 export async function executeGroup(
   bucket: TestBucket,
   group: ActionGroup,
-  { runId, config, signal: cancelled, emit, onResult }: ExecuteOptions,
+  { runId, config, signal: cancelled, emit, onResult, environmentId, overrides = [] }: ExecuteOptions,
 ): Promise<ExecuteOutcome> {
   emit({
     type: 'run:started',
@@ -122,6 +126,7 @@ export async function executeGroup(
   const startTime = performance.now();
   const sortedSteps = [...group.steps].sort((a, b) => a.order - b.order);
   const records = config.useDataStore ? (group.dataStore?.records ?? []) : [];
+  const baseVariables = effectiveVariables(bucket, environmentId === undefined ? bucket.activeEnvironmentId : environmentId);
 
   // Metrics only need these fields, so the run's response bodies never pile up in memory.
   const metricRows: Parameters<typeof computeMetrics>[0] = [];
@@ -135,12 +140,13 @@ export async function executeGroup(
   };
 
   const runSingleIteration = async (iteration: number) => {
-    // Independent variable context per iteration: bucket variables, then this iteration's
-    // data-store record (overrides them), then values extracted by earlier steps.
-    const variables: BucketVariable[] = [...bucket.variables];
+    // Independent variable context per iteration. Later entries win: bucket variables, the
+    // environment's, this iteration's data-store record, overrides, then values extracted by earlier steps.
+    const variables: BucketVariable[] = [...baseVariables];
     for (const [key, val] of Object.entries(records[(iteration - 1) % records.length] ?? {})) {
       variables.push({ id: randomUUID(), key, value: stringify(val) ?? '', enabled: true });
     }
+    variables.push(...overrides);
     const v = (s: string) => interpolate(s, variables).resolved;
 
     for (const step of sortedSteps) {

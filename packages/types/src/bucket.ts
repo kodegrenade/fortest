@@ -109,6 +109,16 @@ export const BucketVariableSchema = z.object({
 });
 export type BucketVariable = z.infer<typeof BucketVariableSchema>;
 
+// --- Environment ---
+// Named variables (e.g. staging, prod) that override the bucket's own variables when selected.
+
+export const EnvironmentSchema = z.object({
+  id: z.string().uuid(),
+  name: z.string().min(1),
+  variables: z.array(BucketVariableSchema).default([]),
+});
+export type Environment = z.infer<typeof EnvironmentSchema>;
+
 // --- Test Bucket ---
 // Top-level container scoped to one API service.
 
@@ -119,6 +129,8 @@ export const TestBucketSchema = z.object({
   auth: AuthConfigSchema.default({ type: 'none' }),
   variables: z.array(BucketVariableSchema).default([]),
   actionGroups: z.array(ActionGroupSchema).default([]),
+  environments: z.array(EnvironmentSchema).default([]),
+  activeEnvironmentId: z.string().uuid().nullable().default(null), // the selected environment, if any
   createdAt: z.string().datetime(),
   updatedAt: z.string().datetime(),
 });

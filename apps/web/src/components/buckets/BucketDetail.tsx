@@ -14,7 +14,8 @@ import {
 import { AuthFields } from '@/components/common/AuthFields';
 import { ActionGroupDialogs, type GroupDialogState } from '@/components/common/ActionGroupDialogs';
 import { PasteVariablesDialog } from '@/components/common/PasteVariablesDialog';
-import type { BucketVariable, AuthConfig } from '@fortest/types';
+import type { BucketVariable, AuthConfig, Environment } from '@fortest/types';
+import { PromptDialog } from '@/components/common/PromptDialog';
 import { useToastStore } from '@/stores/toastStore';
 
 export function BucketDetail() {
@@ -32,32 +33,57 @@ export function BucketDetail() {
   const [baseUrl, setBaseUrl] = useState('');
   const [auth, setAuth] = useState<AuthConfig>({ type: 'none' });
   const [variables, setVariables] = useState<BucketVariable[]>([]);
+  const [environments, setEnvironments] = useState<Environment[]>([]);
+  // Which variable list is being edited: 'shared' (the bucket's own) or an environment id.
+  const [scope, setScope] = useState('shared');
   const [isConfigExpanded, setIsConfigExpanded] = useState(true);
 
   // Sync state with active bucket. Keyed on the config fields only: other store updates
   // (e.g. adding an action group) must not wipe unsaved edits to the form.
-  const configKey = bucket && JSON.stringify([bucket.id, bucket.name, bucket.baseUrl, bucket.auth, bucket.variables]);
+  const configKey = bucket && JSON.stringify([bucket.id, bucket.name, bucket.baseUrl, bucket.auth, bucket.variables, bucket.environments]);
   useEffect(() => {
     if (bucket) {
       setBaseUrl(bucket.baseUrl || '');
       setAuth(bucket.auth || { type: 'none' });
       setVariables(bucket.variables || []);
+      setEnvironments(bucket.environments || []);
     }
   }, [configKey]);
 
-  const [dialogState, setDialogState] = useState<{ type: GroupDialogState['type'] | 'pasteVariables' } & Omit<GroupDialogState, 'type'>>({ type: null });
+  const [dialogState, setDialogState] = useState<
+    { type: GroupDialogState['type'] | 'pasteVariables' | 'newEnvironment' } & Omit<GroupDialogState, 'type'>
+  >({ type: null });
 
   if (!bucket) return null;
+
+  // The variable list currently shown: the bucket's shared one or the selected environment's.
+  const scopedEnv = environments.find((e) => e.id === scope);
+  const scopedVariables = scopedEnv ? scopedEnv.variables : variables;
+  const setScopedVariables = (next: BucketVariable[]) =>
+    scopedEnv
+      ? setEnvironments(environments.map((e) => (e.id === scopedEnv.id ? { ...e, variables: next } : e)))
+      : setVariables(next);
+  const updateScopedEnv = (patch: Partial<Environment>) =>
+    setEnvironments(environments.map((e) => (e.id === scope ? { ...e, ...patch } : e)));
+  const hasKey = (v: BucketVariable) => v.key.trim() !== '';
+  const isSelectedTab = (id: string) => (scopedEnv ? id === scopedEnv.id : id === 'shared');
 
   const handleSaveConfig = async (e: React.FormEvent) => {
     e.preventDefault();
     // Validate variables (filter out empty keys)
-    const validVariables = variables.filter((v) => v.key.trim() !== '');
+    const names = environments.map((e) => e.name.trim().toLowerCase());
+    if (names.some((n) => !n) || new Set(names).size !== names.length) {
+      addToast('Environment names must be filled in and unique.', 'error');
+      return;
+    }
     try {
       await updateBucket(bucket.id, {
         baseUrl,
         auth,
-        variables: validVariables,
+        variables: variables.filter(hasKey),
+        environments: environments.map((e) => ({ ...e, name: e.name.trim(), variables: e.variables.filter(hasKey) })),
+        // A deleted environment can't stay selected.
+        activeEnvironmentId: environments.some((e) => e.id === bucket.activeEnvironmentId) ? bucket.activeEnvironmentId : null,
       });
       addToast('Global configuration saved successfully', 'success');
     } catch (err: any) {
@@ -72,12 +98,12 @@ export function BucketDetail() {
       value: '',
       enabled: true,
     };
-    setVariables([...variables, newVar]);
+    setScopedVariables([...scopedVariables, newVar]);
   };
 
   const handleVariableChange = (id: string, field: keyof BucketVariable, val: any) => {
-    setVariables(
-      variables.map((v) => {
+    setScopedVariables(
+      scopedVariables.map((v) => {
         if (v.id === id) {
           return { ...v, [field]: val };
         }
@@ -87,7 +113,7 @@ export function BucketDetail() {
   };
 
   const handleRemoveVariable = (id: string) => {
-    setVariables(variables.filter((v) => v.id !== id));
+    setScopedVariables(scopedVariables.filter((v) => v.id !== id));
   };
 
   const handleBulkAddVariables = (parsedVars: { key: string; value: string; enabled: boolean }[]) => {
@@ -97,7 +123,7 @@ export function BucketDetail() {
       value: v.value,
       enabled: v.enabled,
     }));
-    setVariables([...variables, ...newVars]);
+    setScopedVariables([...scopedVariables, ...newVars]);
     addToast(`Successfully added ${newVars.length} variables. Click "Save Configuration" to persist them.`, 'success');
     setDialogState({ type: null });
   };
@@ -176,7 +202,7 @@ export function BucketDetail() {
             {/* Global Variables */}
             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                <label style={{ fontWeight: 500, fontSize: '12px', color: 'var(--text-secondary)' }}>Bucket Variables</label>
+                <label style={{ fontWeight: 500, fontSize: '12px', color: 'var(--text-secondary)' }}>Variables</label>
                 <div style={{ display: 'flex', gap: '8px' }}>
                   <button
                     type="button"
@@ -197,13 +223,76 @@ export function BucketDetail() {
                 </div>
               </div>
 
-              {variables.length === 0 ? (
+              {/* Shared variables + one tab per environment */}
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', alignItems: 'center' }}>
+                {[{ id: 'shared', name: 'Shared' }, ...environments].map((tab) => (
+                  <button
+                    key={tab.id}
+                    type="button"
+                    className={`btn ${isSelectedTab(tab.id) ? 'btn--secondary' : 'btn--ghost'}`}
+                    aria-pressed={isSelectedTab(tab.id)}
+                    style={{
+                      fontSize: '12px',
+                      padding: '4px 10px',
+                      boxShadow: isSelectedTab(tab.id) ? 'inset 0 -2px 0 var(--accent-primary)' : undefined,
+                    }}
+                    onClick={() => setScope(tab.id)}
+                    title={tab.id === bucket.activeEnvironmentId ? 'Selected environment' : undefined}
+                  >
+                    {tab.name || 'Unnamed'}
+                    {tab.id === bucket.activeEnvironmentId && <span style={{ color: 'var(--status-2xx)' }}> ●</span>}
+                  </button>
+                ))}
+                <button
+                  type="button"
+                  className="btn btn--ghost"
+                  style={{ fontSize: '12px', padding: '4px 10px', display: 'flex', alignItems: 'center', gap: '4px' }}
+                  onClick={() => setDialogState({ type: 'newEnvironment' })}
+                >
+                  <PlusIcon size={12} /> Environment
+                </button>
+              </div>
+
+              {scopedEnv ? (
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <input
+                    type="text"
+                    className="input"
+                    style={{ maxWidth: '220px' }}
+                    aria-label="Environment name"
+                    value={scopedEnv.name}
+                    onChange={(e) => updateScopedEnv({ name: e.target.value })}
+                  />
+                  <span style={{ flex: 1, fontSize: '12px', color: 'var(--text-tertiary)' }}>
+                    Overrides shared variables with the same name when this environment is selected.
+                  </span>
+                  <button
+                    type="button"
+                    className="btn btn--ghost"
+                    style={{ fontSize: '11px', padding: '4px 8px', color: 'var(--method-delete)' }}
+                    onClick={() => {
+                      setEnvironments(environments.filter((e) => e.id !== scopedEnv.id));
+                      setScope('shared');
+                    }}
+                  >
+                    Delete environment
+                  </button>
+                </div>
+              ) : (
+                environments.length > 0 && (
+                  <span style={{ fontSize: '12px', color: 'var(--text-tertiary)' }}>
+                    Shared variables apply in every environment. Pick the environment to run with in the sidebar.
+                  </span>
+                )
+              )}
+
+              {scopedVariables.length === 0 ? (
                 <div style={{ padding: '16px', borderRadius: 'var(--radius-md)', border: '1px dashed var(--border-primary)', textAlign: 'center', color: 'var(--text-tertiary)', fontSize: '12px' }}>
                   No variables defined. Reference values in paths, headers, or bodies using double curly braces (e.g. &#123;&#123;baseUrl&#125;&#125;).
                 </div>
               ) : (
                 <div className="variables-list">
-                  {variables.map((variable) => (
+                  {scopedVariables.map((variable) => (
                     <div key={variable.id} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                       <input
                         type="checkbox"
@@ -337,6 +426,25 @@ export function BucketDetail() {
 
       {dialogState.type === 'pasteVariables' ? (
         <PasteVariablesDialog onConfirm={handleBulkAddVariables} onCancel={() => setDialogState({ type: null })} />
+      ) : dialogState.type === 'newEnvironment' ? (
+        <PromptDialog
+          title="New Environment"
+          label="Name"
+          placeholder="e.g. staging"
+          submitText="Add"
+          onConfirm={(name) => {
+            if (environments.some((e) => e.name.toLowerCase() === name.toLowerCase())) {
+              addToast(`An environment named "${name}" already exists.`, 'error');
+              return;
+            }
+            const env: Environment = { id: crypto.randomUUID(), name, variables: [] };
+            setEnvironments([...environments, env]);
+            setScope(env.id);
+            setDialogState({ type: null });
+            addToast(`Environment "${name}" added. Click "Save Configuration" to persist it.`, 'info');
+          }}
+          onCancel={() => setDialogState({ type: null })}
+        />
       ) : (
         <ActionGroupDialogs
           bucketId={bucket.id}

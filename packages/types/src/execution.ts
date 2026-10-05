@@ -87,6 +87,7 @@ export const ExecutionRunSchema = z.object({
   completedAt: z.string().datetime().optional(),
   duration: z.number().min(0).optional(), // total ms
   error: z.string().optional(), // why a run failed or stopped early
+  environmentName: z.string().optional(), // the environment the run used, if any
   createdAt: z.string().datetime(),
 });
 export type ExecutionRun = z.infer<typeof ExecutionRunSchema>;

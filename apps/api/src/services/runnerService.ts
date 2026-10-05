@@ -1,6 +1,7 @@
 import { getBucketById } from './bucketService';
 import { getStorageAdapter } from './storage';
 import { executeGroup, resolveConfig } from './executor';
+import { activeEnvironment } from '@fortest/utils';
 import type {
   StepResult,
   ExecutionRun,
@@ -97,6 +98,7 @@ export async function runGroup(
     bucketId,
     actionGroupId: groupId,
     actionGroupName: group.name,
+    environmentName: activeEnvironment(bucket)?.name,
     config,
     status: 'running',
     startedAt: new Date().toISOString(),

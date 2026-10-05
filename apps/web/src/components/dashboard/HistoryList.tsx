@@ -140,6 +140,9 @@ export function HistoryList({ groupId }: HistoryListProps) {
                         </span>
                       </span>
                     )}
+                    {run.environmentName && (
+                      <span style={{ display: 'block', fontSize: '11px', color: 'var(--text-tertiary)' }}>env: {run.environmentName}</span>
+                    )}
                   </td>
                   <td style={{ padding: '14px 16px', color: 'var(--text-secondary)' }}>
                     {run.duration !== undefined ? `${run.duration} ms` : '—'}

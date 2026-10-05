@@ -136,6 +136,8 @@ export function convertPostmanCollection(data: PostmanCollection): ConversionRes
     baseUrl,
     auth: convertAuth(data.auth, warnings, 'Collection'),
     variables: toKeyValues(data.variable),
+    environments: [],
+    activeEnvironmentId: null,
     actionGroups: groups
       .filter((g) => g.steps.length > 0)
       .map((g, order) => ({

@@ -62,6 +62,8 @@ The top-level container that groups related Action Groups and defines environmen
 | `auth` | Object | Optional | Global authenticator inherited by all steps. Default: `{ type: "none" }`. |
 | `variables` | Array | Optional | Environmental key-value variables. Default: `[]`. |
 | `actionGroups` | Array | Optional | List of test workflows. Default: `[]`. |
+| `environments` | Array | Optional | Named variable sets (e.g. local, staging, prod), each `{ "name": "staging", "variables": [...] }`. Default: `[]`. |
+| `activeEnvironmentId` | String | Optional | The environment runs use: its `id`, or in hand-written files simply its `name`. Default: none. |
 
 #### How to use the `auth` tag:
 The `auth` object allows you to specify global authentication details. Optional configurations include:
@@ -79,6 +81,25 @@ Shared environment parameters that can be interpolated in any URL, header, query
 | `key` | String | **Required** | The variable placeholder label. |
 | `value` | String | **Required** | The value assigned to the variable. |
 | `enabled` | Boolean | Optional | Determines if the variable is active. Default: `true`. |
+
+---
+
+#### Environments: one bucket, many targets
+Put what differs between targets (hosts, credentials) into environments, and reference it from the bucket. A common setup is a base URL of `{{baseUrl}}`:
+
+```yaml
+baseUrl: "{{baseUrl}}"
+variables:
+  - { key: baseUrl, value: "http://localhost:8080" }   # shared default
+environments:
+  - name: staging
+    variables: [{ key: baseUrl, value: "https://staging.api.example.com" }]
+  - name: prod
+    variables: [{ key: baseUrl, value: "https://api.example.com" }]
+activeEnvironmentId: staging
+```
+
+In the app, environments are edited as tabs under the bucket's **Variables**, and the one to run with is picked in the sidebar. The CLI uses the selected one unless told otherwise (`--env prod`, or `--env none`).
 
 ---
 
@@ -328,8 +349,10 @@ Postman collections can contain execution logic or configuration not supported b
 
 ### 1. Variable Precedence and Namespace Scopes
 When Fortest resolves template variables (e.g., `{{placeholder}}`) during execution, it compiles a runtime context mapping keys to values. Collision resolution is handled in the following order:
-- **Global Bucket Variables**: Loaded first.
-- **Data Store Parameters** (for load testing): Appended next. If a parameter in the Data Store has the same key as a Global Bucket Variable, the **Data Store parameter overrides the Global Variable**.
+- **Bucket Variables**: Loaded first (the shared defaults).
+- **Environment Variables**: The selected environment's variables override bucket variables with the same key.
+- **Data Store Parameters** (for load testing): Each iteration's record overrides both of the above.
+- **CLI `--var` Overrides**: Beat everything else, so a pipeline can always inject a value.
 - **Step Extractions**: Extracted variables are stored in a step-specific namespace (e.g., `{{steps.Login Step.token}}`). Because they are isolated by step names, they will never collide with or overwrite global variables.
 
 *Note: Unresolved placeholders are left as-is (e.g., `{{missingVar}}` remains in the string), allowing you to easily identify configuration errors in request payloads.*
@@ -410,6 +433,7 @@ The `fortest` CLI runs a bucket file (an exported JSON/YAML bucket, or a Postman
 ```bash
 pnpm fortest run tests/shop-api.yaml                         # all action groups
 pnpm fortest run tests/shop-api.yaml --group "Checkout Flow" # just one (repeatable)
+pnpm fortest run tests/shop-api.yaml --env staging          # pick an environment ("none" for none)
 pnpm fortest run tests/shop-api.yaml --var token=$API_TOKEN  # set/override variables (e.g. CI secrets)
 pnpm fortest run tests/shop-api.yaml --junit report.xml      # JUnit XML for CI test summaries
 pnpm fortest run tests/shop-api.yaml --iterations 50 --concurrency 10   # load run
@@ -420,7 +444,7 @@ pnpm fortest --help
 | :--- | :--- |
 | `0` | Every step and assertion passed |
 | `1` | A step failed (network error, HTTP 4xx/5xx, or a failed assertion) |
-| `2` | Bad input: unreadable or invalid file, unknown option, unknown `--group` |
+| `2` | Bad input: unreadable or invalid file, unknown option, unknown `--group` or `--env` |
 | `130` | Interrupted with Ctrl+C (the JUnit report is still written) |
 
 `pnpm` reports any failure as exit code `1`; run the Docker image (below) or `apps/api/node_modules/.bin/tsx apps/api/src/cli.ts` directly to see the exact code. Bucket files are the same format as the app's **Export** (see the schema guide above), so the usual workflow is: build the flow in the app, export it into your repo, run it in CI.
@@ -448,7 +472,7 @@ jobs:
       - uses: actions/setup-node@v4
         with: { node-version: 20, cache: pnpm }
       - run: pnpm install --frozen-lockfile
-      - run: pnpm fortest run tests/shop-api.yaml --var token=${{ secrets.API_TOKEN }} --junit fortest-report.xml
+      - run: pnpm fortest run tests/shop-api.yaml --env staging --var token=${{ secrets.API_TOKEN }} --junit fortest-report.xml
       - uses: mikepenz/action-junit-report@v4 # shows per-step results on the run and PR
         if: always()
         with: { report_paths: fortest-report.xml }

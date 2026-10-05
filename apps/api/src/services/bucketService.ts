@@ -5,6 +5,10 @@ import { getStorageAdapter } from './storage';
 
 const INDEX_KEY = 'buckets:index';
 
+// Buckets saved before newer fields existed lack them; fill in their defaults on read.
+const withDefaults = (stored: Partial<TestBucket>) =>
+  ({ environments: [], activeEnvironmentId: null, ...stored }) as TestBucket;
+
 function getBucketKey(id: string): string {
   return `bucket:${id}`;
 }
@@ -19,7 +23,7 @@ export async function getAllBuckets(): Promise<TestBucket[]> {
     if (data) {
       try {
         const parsed: unknown = JSON.parse(data);
-        buckets.push(parsed as TestBucket);
+        buckets.push(withDefaults(parsed as TestBucket));
       } catch (err) {
         console.error(`Failed to parse bucket ${id}`, err);
       }
@@ -35,7 +39,7 @@ export async function getBucketById(id: string): Promise<TestBucket | null> {
   if (!data) return null;
 
   try {
-    return JSON.parse(data) as TestBucket;
+    return withDefaults(JSON.parse(data) as TestBucket);
   } catch (err) {
     console.error(`Failed to parse bucket ${id}`, err);
     return null;
@@ -54,6 +58,8 @@ export async function createBucket(name: string, baseUrl?: string): Promise<Test
     auth: { type: 'none' },
     variables: [],
     actionGroups: [],
+    environments: [],
+    activeEnvironmentId: null,
     createdAt: now,
     updatedAt: now,
   };
@@ -67,7 +73,10 @@ export async function createBucket(name: string, baseUrl?: string): Promise<Test
   return newBucket;
 }
 
-export async function updateBucket(id: string, updates: Partial<TestBucket>): Promise<TestBucket | null> {
+export async function updateBucket(
+  id: string,
+  updates: Partial<TestBucket>,
+): Promise<TestBucket | null> {
   const adapter = getStorageAdapter();
   const existingData = await adapter.get(getBucketKey(id));
   if (!existingData) return null;
@@ -117,13 +126,33 @@ export function prepareImport(input: unknown): TestBucket {
   const raw = ImportedBucketShape.parse(input);
   const now = new Date().toISOString();
   const list = (value: unknown): any[] => (Array.isArray(value) ? value : []);
-  const fresh = (o: any) => ({ ...o, id: randomUUID(), createdAt: o?.createdAt ?? now, updatedAt: now });
+  const fresh = (o: any) => ({
+    ...o,
+    id: randomUUID(),
+    createdAt: o?.createdAt ?? now,
+    updatedAt: now,
+  });
   const withIds = (value: unknown) => list(value).map((o) => ({ ...o, id: randomUUID() }));
+
+  // Environments get fresh ids too, so the active one is re-pointed. Hand-written files can
+  // name it instead (activeEnvironmentId: staging), since they have no ids to refer to.
+  const environments = list(raw.environments).map((env) => ({
+    ...env,
+    id: randomUUID(),
+    variables: withIds(env.variables),
+  }));
+  const active = list(raw.environments).findIndex(
+    (env) =>
+      raw.activeEnvironmentId != null &&
+      (env?.id === raw.activeEnvironmentId || env?.name === raw.activeEnvironmentId),
+  );
 
   return TestBucketSchema.strict().parse({
     name: 'Imported Bucket',
     ...fresh(raw),
     variables: withIds(raw.variables),
+    environments,
+    activeEnvironmentId: environments[active]?.id ?? null,
     actionGroups: list(raw.actionGroups).map((group, gIdx) => ({
       name: `Action Group ${gIdx + 1}`,
       order: gIdx,

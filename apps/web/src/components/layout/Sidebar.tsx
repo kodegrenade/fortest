@@ -23,6 +23,7 @@ export function Sidebar() {
     activeGroupId,
     setActiveBucket,
     setActiveGroup,
+    updateBucket,
   } = useBucketStore();
 
   const activeBucket = buckets.find((b) => b.id === activeBucketId);
@@ -52,6 +53,29 @@ export function Sidebar() {
             <div className="sidebar__active-bucket-title" title={activeBucket.name}>
               {activeBucket.name}
             </div>
+
+            {/* Environment the bucket's runs use (managed under the bucket's Variables) */}
+            {activeBucket.environments.length > 0 && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', padding: '0 12px 8px' }}>
+                <label htmlFor="sidebar-environment" className="sidebar__header-title" style={{ fontSize: '10px' }}>
+                  Environment
+                </label>
+                <select
+                  id="sidebar-environment"
+                  className="input"
+                  style={{ fontSize: '12px', padding: '4px 8px' }}
+                  value={activeBucket.activeEnvironmentId ?? ''}
+                  onChange={(e) => updateBucket(activeBucket.id, { activeEnvironmentId: e.target.value || null })}
+                >
+                  <option value="">No environment</option>
+                  {activeBucket.environments.map((env) => (
+                    <option key={env.id} value={env.id}>
+                      {env.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
             
             <div className="sidebar__header" style={{ borderBottom: 'none', paddingBottom: 0 }}>
               <span className="sidebar__header-title" style={{ fontSize: '10px' }}>Action Groups</span>

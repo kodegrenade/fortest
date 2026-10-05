@@ -4,7 +4,7 @@ import { useToastStore } from '@/stores/toastStore';
 import { TrashIcon, PlusIcon } from '@/components/common/Icons';
 import { AuthFields } from '@/components/common/AuthFields';
 import type { KeyValuePair, RequestBody, AuthConfig, ExtractionRule, Assertion, Step } from '@fortest/types';
-import { parseFormPairs } from '@fortest/utils';
+import { effectiveVariables, interpolate, parseFormPairs } from '@fortest/utils';
 import './Steps.css';
 import { VariableInput } from './VariableInput';
 import { KeyValueEditor } from './KeyValueEditor';
@@ -208,7 +208,9 @@ export function StepEditor({ bucketId, groupId, stepId }: StepEditorProps) {
   };
 
   const bodyError = getBodyValidationError(body);
-  const varProps = { variables: bucket.variables, precedingSteps };
+  // Autocomplete and the URL preview use what a run would: shared variables + the selected environment's.
+  const variables = effectiveVariables(bucket);
+  const varProps = { variables, precedingSteps };
 
   const handleBeautifyJson = () => {
     try {
@@ -221,7 +223,8 @@ export function StepEditor({ bucketId, groupId, stepId }: StepEditorProps) {
   };
 
   // Full URL display helper (absolute step paths, e.g. from a Postman import, are used as-is)
-  const fullUrl = /^https?:\/\//i.test(path) ? path : `${bucket.baseUrl || ''}${path.startsWith('/') ? path : '/' + path}`;
+  const resolvedBase = interpolate(bucket.baseUrl || '', variables).resolved;
+  const fullUrl = /^https?:\/\//i.test(path) ? path : `${resolvedBase}${path.startsWith('/') ? path : '/' + path}`;
   const counts: Partial<Record<TabType, number>> = {
     headers: headers.length,
     params: params.length,

@@ -12,7 +12,7 @@ import {
   type StepResult,
   type TestBucket,
 } from '@fortest/types';
-import { isFailedResult } from '@fortest/utils';
+import { activeEnvironment, isFailedResult } from '@fortest/utils';
 import { prepareImport } from './services/bucketService';
 import { isPostmanCollection, convertPostmanCollection } from './services/postmanConverter';
 import { executeGroup, resolveConfig, type ExecuteOutcome } from './services/executor';
@@ -23,7 +23,8 @@ const USAGE = `Usage:
 
 Options for run:
   -g, --group <name>       Only run this action group (repeatable; default: all)
-  -v, --var <KEY=VALUE>    Set or override a bucket variable (repeatable), e.g. --var token=$API_TOKEN
+  -e, --env <name>         Use this environment (default: the bucket's selected one; "none" for none)
+  -v, --var <KEY=VALUE>    Set or override a variable (repeatable; beats everything), e.g. --var token=$API_TOKEN
   --iterations <n>         Iterations per action group (default 1; more makes it a load run)
   --concurrency <n>        Iterations run in parallel (default 1)
   --delay <ms>             Delay between steps (default 0)
@@ -75,6 +76,20 @@ function loadBuckets(file: string): TestBucket[] {
   } catch (err) {
     throw new UsageError(`${file} is not a valid Fortest bucket file:\n${messageOf(err)}`);
   }
+}
+
+/** --env by name (case-insensitive); "none" for no environment; default the bucket's selected one. */
+function pickEnvironment(bucket: TestBucket, name: string | undefined) {
+  if (name === undefined) return activeEnvironment(bucket);
+  if (name.toLowerCase() === 'none') return undefined;
+  const env = bucket.environments.find((e) => e.name.toLowerCase() === name.toLowerCase());
+  if (!env) {
+    const names = bucket.environments.map((e) => e.name);
+    throw new UsageError(
+      `No environment "${name}" in ${bucket.name}${names.length ? ` (has: ${names.join(', ')})` : ' (it has none)'}.`,
+    );
+  }
+  return env;
 }
 
 /** Why a result failed, as short lines. */
@@ -153,6 +168,7 @@ const parseCommandLine = (args: string[]) =>
     allowPositionals: true,
     options: {
       group: { type: 'string', short: 'g', multiple: true },
+      env: { type: 'string', short: 'e' },
       var: { type: 'string', short: 'v', multiple: true },
       iterations: { type: 'string' },
       concurrency: { type: 'string' },
@@ -203,21 +219,24 @@ async function run(args: string[]): Promise<number> {
 
   const wanted = (values.group ?? []).map((g) => g.toLowerCase());
   const runs: GroupRun[] = [];
-  for (const loaded of loadBuckets(positionals[0]!)) {
-    // Later variables win, so overrides go last.
-    const bucket = { ...loaded, variables: [...loaded.variables, ...overrides] };
+  for (const bucket of loadBuckets(positionals[0]!)) {
+    const environment = pickEnvironment(bucket, values.env);
     const groups = [...bucket.actionGroups]
       .sort((a, b) => a.order - b.order)
       .filter((g) => !wanted.length || wanted.includes(g.name.toLowerCase()));
 
     for (const group of groups) {
       if (controller.signal.aborted) break;
-      console.log(`\n${bold(group.name)} ${dim(`(${bucket.name})`)}`);
+      console.log(
+        `\n${bold(group.name)} ${dim(`(${[bucket.name, environment?.name].filter(Boolean).join(' · ')})`)}`,
+      );
       const results: StepResult[] = [];
       const started = performance.now();
       const outcome = await executeGroup(bucket, group, {
         runId: randomUUID(),
         config,
+        environmentId: environment?.id ?? null,
+        overrides,
         signal: controller.signal,
         emit: (event) => {
           if (event.type !== 'step:finished' || config.iterations > 1) return;

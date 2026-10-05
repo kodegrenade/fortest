@@ -87,6 +87,7 @@ export function RunDashboard() {
             </h2>
             <span style={{ fontSize: '11px', color: 'var(--text-tertiary)' }}>
               Run ID: {activeRun.id}
+              {activeRun.environmentName && ` · env: ${activeRun.environmentName}`}
               {activeRun.error && ` · ${activeRun.error}`}
             </span>
           </div>

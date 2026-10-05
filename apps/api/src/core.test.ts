@@ -27,9 +27,9 @@ import {
   getRunSummary,
   runGroup,
 } from './services/runnerService';
-import { computeMetrics, joinUrl } from './services/executor';
+import { computeMetrics, executeGroup, joinUrl, resolveConfig } from './services/executor';
 import { getStorageAdapter } from './services/storage';
-import { saveBucket, prepareImport } from './services/bucketService';
+import { saveBucket, prepareImport, getBucketById } from './services/bucketService';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -747,4 +747,156 @@ test('CLI: exit codes, --var overrides, and a JUnit report CI can read', async (
   assert.equal((await fortest('run', file, '--iterations', '0')).code, 2);
   assert.equal((await fortest('run', file, '--group', 'Nope')).code, 2);
   assert.equal((await fortest('bogus')).code, 2);
+});
+
+// --- Environments ---
+
+test('environments: override order is bucket < environment < data-store record < --var', async (t) => {
+  const baseUrl = await startTarget(t);
+  const now = new Date().toISOString();
+  const env = { id: randomUUID(), name: 'staging', variables: vars({ path: 'ok' }) };
+  const bucket = TestBucketSchema.parse({
+    id: randomUUID(),
+    name: 'envs',
+    baseUrl,
+    createdAt: now,
+    updatedAt: now,
+    variables: vars({ path: 'fail' }), // shared default: hits /fail
+    environments: [env],
+    activeEnvironmentId: env.id,
+    actionGroups: [
+      {
+        id: randomUUID(),
+        name: 'g',
+        order: 0,
+        createdAt: now,
+        updatedAt: now,
+        dataStore: { id: randomUUID(), name: 'd', records: [{ path: 'fail' }], createdAt: now },
+        steps: [
+          {
+            id: randomUUID(),
+            name: 'hit',
+            order: 0,
+            path: '/{{path}}',
+            createdAt: now,
+            updatedAt: now,
+          },
+        ],
+      },
+    ],
+  });
+  const group = bucket.actionGroups[0]!;
+  const statusOf = async (
+    opts: Partial<Parameters<typeof executeGroup>[2]>,
+    useDataStore = false,
+  ) => {
+    let status = -1;
+    await executeGroup(bucket, group, {
+      runId: randomUUID(),
+      config: resolveConfig({ useDataStore }),
+      signal: new AbortController().signal,
+      emit: () => {},
+      onResult: (r) => void (status = r.status),
+      ...opts,
+    });
+    return status;
+  };
+
+  assert.equal(
+    await statusOf({}),
+    200,
+    "the bucket's active environment overrides bucket variables",
+  );
+  assert.equal(await statusOf({ environmentId: null }), 500, 'no environment: bucket variables');
+  assert.equal(await statusOf({}, true), 500, 'a data-store record overrides the environment');
+  assert.equal(
+    await statusOf({ overrides: vars({ path: 'ok' }) }, true),
+    200,
+    'overrides (--var) beat everything',
+  );
+
+  await saveBucket(bucket);
+  const runId = randomUUID();
+  await runGroup(bucket.id, group.id, runId, {}, () => {});
+  assert.equal(
+    (await getRunSummary(runId))?.environmentName,
+    'staging',
+    'runs record their environment',
+  );
+});
+
+test('environments: imports re-point the active environment, by id or (hand-written) by name', () => {
+  const file = (active: string | null) => ({
+    name: 'b',
+    environments: [
+      { id: randomUUID(), name: 'local' },
+      { name: 'staging', variables: [{ key: 'host', value: 's.test' }] },
+    ],
+    activeEnvironmentId: active,
+  });
+  const byName = prepareImport(file('staging'));
+  assert.equal(byName.activeEnvironmentId, byName.environments[1]!.id);
+  assert.equal(byName.environments[1]!.variables[0]!.value, 's.test');
+
+  const exported = file(null);
+  exported.activeEnvironmentId = exported.environments[0]!.id!;
+  const byId = prepareImport(exported);
+  assert.notEqual(byId.environments[0]!.id, exported.environments[0]!.id, 'fresh ids');
+  assert.equal(byId.activeEnvironmentId, byId.environments[0]!.id, 'still pointing at "local"');
+
+  assert.equal(prepareImport(file('nope')).activeEnvironmentId, null);
+  assert.equal(
+    prepareImport({ name: 'old export' }).environments.length,
+    0,
+    'files from before environments still import',
+  );
+});
+
+test('CLI: --env picks an environment by name; "none" and unknown names', async (t) => {
+  const baseUrl = await startTarget(t);
+  const dir = mkdtempSync(join(tmpdir(), 'fortest-env-'));
+  t.after(() => rmSync(dir, { recursive: true }));
+  const file = join(dir, 'b.yaml');
+  writeFileSync(
+    file,
+    yaml.stringify({
+      name: 'Env Bucket',
+      baseUrl,
+      variables: [{ key: 'path', value: 'fail' }],
+      environments: [{ name: 'Staging', variables: [{ key: 'path', value: 'ok' }] }],
+      activeEnvironmentId: 'Staging',
+      actionGroups: [{ name: 'g', steps: [{ name: 'hit', path: '/{{path}}' }] }],
+    }),
+  );
+
+  const byDefault = await fortest('run', file);
+  assert.equal(byDefault.code, 0, byDefault.out);
+  assert.match(byDefault.out, /Env Bucket · Staging/);
+  assert.equal((await fortest('run', file, '--env', 'staging')).code, 0);
+  assert.equal(
+    (await fortest('run', file, '--env', 'none')).code,
+    1,
+    'none: bucket variables hit /fail',
+  );
+  const unknown = await fortest('run', file, '-e', 'prod');
+  assert.equal(unknown.code, 2);
+  assert.match(unknown.out, /No environment "prod" in Env Bucket \(has: Staging\)/);
+});
+
+test('environments: buckets stored before environments existed load with defaults', async () => {
+  const id = randomUUID();
+  const now = new Date().toISOString();
+  const legacy = {
+    id,
+    name: 'legacy',
+    baseUrl: '',
+    auth: { type: 'none' },
+    variables: [],
+    actionGroups: [],
+    createdAt: now,
+    updatedAt: now,
+  };
+  await getStorageAdapter().set(`bucket:${id}`, JSON.stringify(legacy));
+  const bucket = (await getBucketById(id))!;
+  assert.deepEqual([bucket.environments, bucket.activeEnvironmentId], [[], null]);
 });
