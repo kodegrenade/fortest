@@ -260,7 +260,7 @@ async function run(args: string[]): Promise<number> {
           const ok = !isFailedResult(r);
           const status = r.status ? String(r.status) : '---';
           console.log(
-            `  ${ok ? green('✓') : red('✗')} ${r.stepName}  ${dim(`${r.method} ${status} ${r.responseTime}ms`)}`,
+            `  ${ok ? green('✓') : red('✗')} ${r.stepName}  ${dim(`${r.method} ${status} ${r.responseTime}ms${r.attempts ? ` (${r.attempts} attempts)` : ''}`)}`,
           );
           if (!ok) for (const reason of failureReasons(r)) console.log(`      ${red(reason)}`);
         },

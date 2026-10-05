@@ -312,6 +312,15 @@ export function ActionGroupPanel() {
                               {step.method}
                             </span>
                             <span className="step-node__name">{step.name}</span>
+                            {step.retry && (
+                              <span
+                                className="badge"
+                                title={`Retries until it passes: up to ${step.retry.maxAttempts} attempts, every ${step.retry.intervalMs} ms`}
+                                style={{ fontSize: '10px', color: 'var(--accent-primary)', backgroundColor: 'var(--accent-subtle)', border: 'none' }}
+                              >
+                                ↻ {step.retry.maxAttempts}×
+                              </span>
+                            )}
                           </div>
                           <span className="step-node__path">{step.path}</span>
                         </div>

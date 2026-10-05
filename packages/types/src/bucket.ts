@@ -59,6 +59,13 @@ export const StepSchema = z.object({
   auth: AuthConfigSchema.default({ type: 'none' }), // step-level auth override (falls back to bucket auth if 'none')
   extractions: z.array(ExtractionRuleSchema).default([]),
   assertions: z.array(AssertionSchema).default([]),
+  // Resend until the step passes (assertions pass, no network error or 4xx/5xx), e.g. polling a job.
+  retry: z
+    .object({
+      maxAttempts: z.number().int().min(2).max(100),
+      intervalMs: z.number().int().min(0).max(60000),
+    })
+    .optional(),
   createdAt: z.string().datetime(),
   updatedAt: z.string().datetime(),
 });

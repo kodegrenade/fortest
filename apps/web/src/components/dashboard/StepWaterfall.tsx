@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { useExecutionStore } from '@/stores/executionStore';
 import { CheckCircleIcon, XIcon, ChevronDownIcon } from '@/components/common/Icons';
 import type { StepResult } from '@fortest/types';
-import { isExecuting, isFailedResult, tint, toneBadge, type Tone } from '@/utils/results';
+import { attemptsLabel, isExecuting, isFailedResult, tint, toneBadge, type Tone } from '@/utils/results';
 
 // Latency bar color: green for 2xx, red otherwise.
 const TONE_BAR = (res: StepResult) => (res.status >= 200 && res.status < 300 ? 'var(--status-2xx)' : 'var(--status-5xx)');
@@ -209,7 +209,7 @@ export function StepWaterfall() {
                               ? 'Running request...'
                               : isFailedResult(res)
                               ? 'Failed'
-                              : `${res.status} · ${res.responseTime}ms`}
+                              : `${res.status} · ${res.responseTime}ms${attemptsLabel(res)}`}
                           </span>
                         </div>
 

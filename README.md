@@ -150,6 +150,7 @@ Individual HTTP requests within an Action Group.
 | `auth` | Object | Optional | Step-level auth overrides. Inherits bucket auth if omitted. |
 | `extractions` | Array | Optional | Extraction rules to parse response parameters. Default: `[]`. |
 | `assertions` | Array | Optional | Assertions to validate responses. Default: `[]`. |
+| `retry` | Object | Optional | Resend until the step passes: `{ "maxAttempts": 2-100, "intervalMs": 0-60000 }`. See below. |
 
 #### How to use headers and query parameters arrays:
 Headers and params use key-value schemas:
@@ -163,6 +164,23 @@ Headers and params use key-value schemas:
 Supports multiple formats:
 - **JSON**: `{ "type": "json", "content": "{\"email\":\"{{email}}\"}" }`
 - **Form Data / URL Encoded**: `{ "type": "form-data", "content": "key1=val1&key2=val2" }` (or standard raw content formats).
+
+---
+
+#### Retry / poll steps (`retry`)
+For asynchronous APIs (jobs, payments, provisioning), a step can resend its request until it passes: its assertions pass and there's no network error or 4xx/5xx response. Without assertions it simply waits for a successful response.
+
+```yaml
+- name: Wait for export
+  path: /exports/{{steps.Start export.id}}
+  retry: { maxAttempts: 30, intervalMs: 2000 }   # poll every 2 s, give up after 30 tries
+  assertions:
+    - { target: body, selector: status, operator: equals, expected: done }
+  extractions:
+    - { variableName: url, source: body, selector: downloadUrl }
+```
+
+Only the final attempt is recorded (with its attempt count and total wait, e.g. "3 attempts in 4.1s"), and only its extractions reach later steps. Run metrics count the step once. Stopping a run interrupts the wait between attempts. In the app, retry is set at the top of a step's **Assertions** tab.
 
 ---
 

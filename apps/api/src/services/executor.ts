@@ -20,6 +20,7 @@ import type {
   KeyValuePair,
   ProxyResponse,
   RunEvent,
+  Step,
   StepResult,
   TestBucket,
 } from '@fortest/types';
@@ -183,112 +184,110 @@ export async function executeGroup(
     emit({ type: 'step:finished', runId, result: stored });
   };
 
-  const runSingleIteration = async (iteration: number) => {
-    // Independent variable context per iteration. Later entries win: bucket variables, the
-    // environment's, this iteration's data-store record, overrides, then values extracted by earlier steps.
-    const variables: BucketVariable[] = [...baseVariables];
-    for (const [key, val] of Object.entries(records[(iteration - 1) % records.length] ?? {})) {
-      variables.push({ id: randomUUID(), key, value: stringify(val) ?? '', enabled: true });
-    }
-    variables.push(...overrides);
+  /**
+   * Sends a step's request once and evaluates it. Never throws: a network error or timeout comes
+   * back as a failed result. `extracted` holds the {{steps.<name>.<var>}} values it produced.
+   */
+  const sendOnce = async (
+    step: Step,
+    iteration: number,
+    variables: BucketVariable[],
+  ): Promise<{ result: StepResult; extracted: BucketVariable[] }> => {
     const v = (s: string) => interpolate(s, variables).resolved;
+    const base = { stepId: step.id, stepName: step.name, iteration, method: step.method };
+    const stepStartTime = performance.now();
+    const extracted: BucketVariable[] = [];
+    let url = '';
+    let requestBodyText: string | undefined;
 
-    for (const step of sortedSteps) {
-      if (cancelled.aborted) return;
-      const stepStartTime = performance.now();
-      const base = { stepId: step.id, stepName: step.name, iteration, method: step.method };
-      let url = '';
-      let requestBodyText: string | undefined;
+    try {
+      // 1. URL: path + enabled query params (+ api-key auth in the query)
+      const auth = resolveAuth(step.auth.type !== 'none' ? step.auth : bucket.auth, variables);
+      const query = [...resolvePairs(step.params, variables), ...auth.query]
+        .map(([k, val]) => `${encodeURIComponent(k)}=${encodeURIComponent(val)}`)
+        .join('&');
+      const path = v(step.path);
+      url = joinUrl(
+        v(bucket.baseUrl),
+        query ? `${path}${path.includes('?') ? '&' : '?'}${query}` : path,
+      );
 
-      emit({ type: 'step:started', runId, ...base });
+      // 2. Headers (names are case-insensitive; users type them in any case)
+      const headers: Record<string, string> = {
+        ...Object.fromEntries(resolvePairs(step.headers, variables)),
+        ...auth.headers,
+      };
+      const contentTypeKeys = Object.keys(headers).filter(
+        (k) => k.toLowerCase() === 'content-type',
+      );
+      if (step.body.type === 'json' && contentTypeKeys.length === 0) {
+        headers['content-type'] = 'application/json';
+      }
 
-      try {
-        // 1. URL: path + enabled query params (+ api-key auth in the query)
-        const auth = resolveAuth(step.auth.type !== 'none' ? step.auth : bucket.auth, variables);
-        const query = [...resolvePairs(step.params, variables), ...auth.query]
-          .map(([k, val]) => `${encodeURIComponent(k)}=${encodeURIComponent(val)}`)
-          .join('&');
-        const path = v(step.path);
-        url = joinUrl(
-          v(bucket.baseUrl),
-          query ? `${path}${path.includes('?') ? '&' : '?'}${query}` : path,
+      // 3. Body. Form bodies are interpolated per field and then encoded, so variable values are escaped correctly.
+      let body: string | URLSearchParams | FormData | undefined;
+      if (step.body.type === 'form-data' || step.body.type === 'x-www-form-urlencoded') {
+        const fields = resolvePairs(
+          parseFormPairs(step.body.content).filter((p) => p.key.trim() !== ''),
+          variables,
         );
-
-        // 2. Headers (names are case-insensitive; users type them in any case)
-        const headers: Record<string, string> = {
-          ...Object.fromEntries(resolvePairs(step.headers, variables)),
-          ...auth.headers,
-        };
-        const contentTypeKeys = Object.keys(headers).filter(
-          (k) => k.toLowerCase() === 'content-type',
-        );
-        if (step.body.type === 'json' && contentTypeKeys.length === 0) {
-          headers['content-type'] = 'application/json';
+        requestBodyText = new URLSearchParams(fields).toString();
+        if (step.body.type === 'form-data') {
+          body = new FormData();
+          for (const [k, val] of fields) body.append(k, val);
+          // fetch must set multipart/form-data itself, with the boundary.
+          for (const k of contentTypeKeys) delete headers[k];
+        } else {
+          body = new URLSearchParams(fields);
         }
+      } else if (step.body.type !== 'none') {
+        body = requestBodyText = v(step.body.content);
+      }
+      // fetch rejects a body on GET/HEAD; the editor allows one on any method, so drop it here.
+      if (step.method === 'GET' || step.method === 'HEAD') body = requestBodyText = undefined;
 
-        // 3. Body. Form bodies are interpolated per field and then encoded, so variable values are escaped correctly.
-        let body: string | URLSearchParams | FormData | undefined;
-        if (step.body.type === 'form-data' || step.body.type === 'x-www-form-urlencoded') {
-          const fields = resolvePairs(
-            parseFormPairs(step.body.content).filter((p) => p.key.trim() !== ''),
-            variables,
-          );
-          requestBodyText = new URLSearchParams(fields).toString();
-          if (step.body.type === 'form-data') {
-            body = new FormData();
-            for (const [k, val] of fields) body.append(k, val);
-            // fetch must set multipart/form-data itself, with the boundary.
-            for (const k of contentTypeKeys) delete headers[k];
-          } else {
-            body = new URLSearchParams(fields);
-          }
-        } else if (step.body.type !== 'none') {
-          body = requestBodyText = v(step.body.content);
-        }
-        // fetch rejects a body on GET/HEAD; the editor allows one on any method, so drop it here.
-        if (step.method === 'GET' || step.method === 'HEAD') body = requestBodyText = undefined;
+      // 4. Execute
+      const res = await fetch(url, {
+        method: step.method,
+        headers,
+        body,
+        signal: AbortSignal.any([AbortSignal.timeout(10_000), cancelled]),
+        redirect: 'follow',
+      });
+      const time = Math.round(performance.now() - stepStartTime); // time to response headers
+      const responseBody = await res.text();
+      const response: ProxyResponse = {
+        status: res.status,
+        statusText: res.statusText,
+        headers: Object.fromEntries(res.headers),
+        body: responseBody,
+        size: Buffer.byteLength(responseBody),
+        time,
+        contentType: res.headers.get('content-type') ?? 'application/octet-stream',
+      };
 
-        // 4. Execute
-        const res = await fetch(url, {
-          method: step.method,
-          headers,
-          body,
-          signal: AbortSignal.any([AbortSignal.timeout(10_000), cancelled]),
-          redirect: 'follow',
+      // 5. Extractions (become {{steps.<name>.<var>}} for later steps, once this step is final)
+      const extractedData: Record<string, string | null> = {};
+      for (const rule of step.extractions) {
+        if (!rule.variableName || (rule.source !== 'status' && !rule.selector)) continue;
+        const value = extractValue(response, rule.source, rule.selector);
+        extractedData[rule.variableName] = value;
+        extracted.push({
+          id: randomUUID(),
+          key: `steps.${step.name}.${rule.variableName}`,
+          value: value ?? '',
+          enabled: true,
         });
-        const time = Math.round(performance.now() - stepStartTime); // time to response headers
-        const responseBody = await res.text();
-        const response: ProxyResponse = {
-          status: res.status,
-          statusText: res.statusText,
-          headers: Object.fromEntries(res.headers),
-          body: responseBody,
-          size: Buffer.byteLength(responseBody),
-          time,
-          contentType: res.headers.get('content-type') ?? 'application/octet-stream',
-        };
+      }
 
-        // 5. Extractions, injected into this iteration's context for downstream steps
-        const extractedData: Record<string, string | null> = {};
-        for (const rule of step.extractions) {
-          if (!rule.variableName || (rule.source !== 'status' && !rule.selector)) continue;
-          const value = extractValue(response, rule.source, rule.selector);
-          extractedData[rule.variableName] = value;
-          variables.push({
-            id: randomUUID(),
-            key: `steps.${step.name}.${rule.variableName}`,
-            value: value ?? '',
-            enabled: true,
-          });
-        }
+      // 6. Assertions. Expected values may reference variables, e.g. {{defaultRole}} or {{steps.Login.userId}}.
+      const assertions = evaluateAssertions(
+        response,
+        step.assertions.map((a) => ({ ...a, expected: v(a.expected) })),
+      );
 
-        // 6. Assertions. Expected values may reference variables, e.g. {{defaultRole}} or {{steps.Login.userId}}.
-        const assertions = evaluateAssertions(
-          response,
-          step.assertions.map((a) => ({ ...a, expected: v(a.expected) })),
-        );
-
-        await recordResult({
+      return {
+        result: {
           ...base,
           status: res.status,
           statusText: res.statusText,
@@ -302,34 +301,80 @@ export async function executeGroup(
           requestBody: requestBodyText,
           timestamp: new Date().toISOString(),
           url,
-        });
-      } catch (stepErr) {
-        if (cancelled.aborted) return; // stopped by the user: not a step failure
-        const error =
-          stepErr instanceof Error ? stepErr.message : 'Unknown network or execution error';
-        const responseTime = Math.round(performance.now() - stepStartTime);
-        url ||= step.path;
-
-        await recordResult({
+        },
+        extracted,
+      };
+    } catch (stepErr) {
+      return {
+        result: {
           ...base,
           status: 0,
           statusText: 'Failed',
-          responseTime,
+          responseTime: Math.round(performance.now() - stepStartTime),
           responseSize: 0,
           responseHeaders: {},
           responseBody: '',
           contentType: 'text/plain',
           extractedData: {},
           assertions: [],
-          error,
+          error: stepErr instanceof Error ? stepErr.message : 'Unknown network or execution error',
           requestBody: requestBodyText,
           timestamp: new Date().toISOString(),
-          url,
-        });
+          url: url || step.path,
+        },
+        extracted: [],
+      };
+    }
+  };
 
-        // A failed request ends this iteration
-        return;
-      }
+  const runSingleIteration = async (iteration: number) => {
+    // Independent variable context per iteration. Later entries win: bucket variables, the
+    // environment's, this iteration's data-store record, overrides, then values extracted by earlier steps.
+    const variables: BucketVariable[] = [...baseVariables];
+    for (const [key, val] of Object.entries(records[(iteration - 1) % records.length] ?? {})) {
+      variables.push({ id: randomUUID(), key, value: stringify(val) ?? '', enabled: true });
+    }
+    variables.push(...overrides);
+
+    for (const step of sortedSteps) {
+      if (cancelled.aborted) return;
+      emit({
+        type: 'step:started',
+        runId,
+        stepId: step.id,
+        stepName: step.name,
+        iteration,
+        method: step.method,
+      });
+
+      // Steps with `retry` resend until they pass or run out of attempts (e.g. polling a job);
+      // only the final attempt is recorded, and only its extractions reach later steps.
+      const maxAttempts = step.retry?.maxAttempts ?? 1;
+      const firstSend = performance.now();
+      let attempt = 0;
+      let outcome: Awaited<ReturnType<typeof sendOnce>>;
+      do {
+        if (attempt > 0)
+          await sleep(step.retry!.intervalMs, undefined, { signal: cancelled }).catch(() => {});
+        if (cancelled.aborted) return; // stopped by the user: not a step failure
+        attempt++;
+        outcome = await sendOnce(step, iteration, variables);
+      } while (attempt < maxAttempts && isFailedResult(outcome.result));
+      if (cancelled.aborted) return;
+
+      variables.push(...outcome.extracted);
+      await recordResult(
+        step.retry
+          ? {
+              ...outcome.result,
+              attempts: attempt,
+              elapsedMs: Math.round(performance.now() - firstSend),
+            }
+          : outcome.result,
+      );
+
+      // A failed request (network error, timeout) ends this iteration
+      if (outcome.result.error) return;
 
       if (config.delayBetweenSteps > 0) {
         await sleep(config.delayBetweenSteps, undefined, { signal: cancelled }).catch(() => {});

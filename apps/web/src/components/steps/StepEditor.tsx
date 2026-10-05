@@ -140,6 +140,7 @@ export function StepEditor({ bucketId, groupId, stepId }: StepEditorProps) {
   const [auth, setAuth] = useState<AuthConfig>({ type: 'none' });
   const [extractions, setExtractions] = useState<ExtractionRule[]>([]);
   const [assertions, setAssertions] = useState<Assertion[]>([]);
+  const [retry, setRetry] = useState<Step['retry']>();
 
   // Sync state with active step
   useEffect(() => {
@@ -154,6 +155,7 @@ export function StepEditor({ bucketId, groupId, stepId }: StepEditorProps) {
       setAuth(step.auth);
       setExtractions(step.extractions);
       setAssertions(step.assertions);
+      setRetry(step.retry);
       setSaveStatus('saved');
     }
   }, [step, stepId]);
@@ -163,7 +165,7 @@ export function StepEditor({ bucketId, groupId, stepId }: StepEditorProps) {
   // Auto-save: current local state with `updates` applied; rows without a key are dropped.
   const saveStepData = async (updates: Partial<Step>) => {
     setSaveStatus('saving');
-    const next = { name, method, path, headers, params, body, auth, extractions, assertions, ...updates };
+    const next = { name, method, path, headers, params, body, auth, extractions, assertions, retry, ...updates };
     try {
       const referencesUpdated = await updateStep(bucketId, groupId, stepId, {
         ...next,
@@ -573,6 +575,56 @@ export function StepEditor({ bucketId, groupId, stepId }: StepEditorProps) {
         {/* Assertions Tab */}
         {activeTab === 'assertions' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+            {/* Retry / poll: resend until this step passes, e.g. "until the job's status is done" */}
+            <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '12px', padding: '10px 12px', border: '1px solid var(--border-primary)', borderRadius: 'var(--radius-md)', backgroundColor: 'var(--bg-secondary)', fontSize: '12px' }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontWeight: 500, color: 'var(--text-primary)', cursor: 'pointer' }}>
+                <input
+                  type="checkbox"
+                  checked={!!retry}
+                  onChange={(e) => {
+                    const next = e.target.checked ? { maxAttempts: 10, intervalMs: 1000 } : undefined;
+                    setRetry(next);
+                    saveStepData({ retry: next });
+                  }}
+                />
+                Retry until this step passes
+              </label>
+              {retry && (
+                <>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '6px', color: 'var(--text-secondary)' }}>
+                    up to
+                    <input
+                      type="number"
+                      className="input"
+                      style={{ width: '70px', padding: '4px 6px' }}
+                      min={2}
+                      max={100}
+                      value={retry.maxAttempts}
+                      onChange={(e) => setRetry({ ...retry, maxAttempts: Math.min(100, Math.max(2, parseInt(e.target.value) || 2)) })}
+                      onBlur={() => saveStepData({ retry })}
+                    />
+                    attempts, every
+                    <input
+                      type="number"
+                      className="input"
+                      style={{ width: '80px', padding: '4px 6px' }}
+                      min={0}
+                      max={60000}
+                      step={100}
+                      value={retry.intervalMs}
+                      onChange={(e) => setRetry({ ...retry, intervalMs: Math.min(60000, Math.max(0, parseInt(e.target.value) || 0)) })}
+                      onBlur={() => saveStepData({ retry })}
+                    />
+                    ms
+                  </label>
+                  <span style={{ color: 'var(--text-tertiary)' }}>
+                    Waits up to {((retry.maxAttempts - 1) * retry.intervalMs / 1000).toFixed(1)}s in total.{' '}
+                    {assertions.length === 0 && 'With no assertions, it retries until a 2xx/3xx response.'}
+                  </span>
+                </>
+              )}
+            </div>
+
             <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
               <button
                 className="btn btn--ghost"

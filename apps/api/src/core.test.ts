@@ -7,6 +7,7 @@ import { randomUUID } from 'node:crypto';
 import {
   applyRunEvent,
   interpolate,
+  isFailedResult,
   parseCsv,
   parseFormPairs,
   redact,
@@ -511,9 +512,27 @@ test('runGroup: chains an extracted token across steps, one isolated context per
 
 // --- Run storage, body retention, cancellation ---
 
-/** A local API for run tests: /ok, /fail (500), /slow (200 ms) and /echo (what it received). */
+/**
+ * A local API for run tests: /ok, /fail (500), /slow (200 ms), /echo (what it received), and
+ * /job/<id>?n=<k> (reports "pending" for the first k-1 polls of a job, then "done" with a result).
+ */
 async function startTarget(t: { after: (fn: () => void) => void }): Promise<string> {
+  const polls = new Map<string, number>();
   const server = http.createServer((req, res) => {
+    const job = req.url?.match(/^\/job\/([^?]+)\?n=(\d+)/);
+    if (job) {
+      const count = (polls.get(job[1]!) ?? 0) + 1;
+      polls.set(job[1]!, count);
+      res.setHeader('content-type', 'application/json');
+      res.end(
+        JSON.stringify(
+          count >= Number(job[2])
+            ? { status: 'done', result: 42, polls: count }
+            : { status: 'pending', polls: count },
+        ),
+      );
+      return;
+    }
     res.setHeader('content-type', 'application/json');
     if (req.url === '/fail') {
       res.statusCode = 500;
@@ -1185,4 +1204,150 @@ test('parseCsv: header keys, quoting, embedded commas/quotes/newlines, CRLF, BOM
   assert.deepEqual(parseCsv(''), []);
   assert.throws(() => parseCsv('a\n"open'), /Unterminated/);
   assert.throws(() => parseCsv('a\n1,2'), /Row 2 has more fields/);
+});
+
+// --- Retry / poll steps ---
+
+test('retry: polls until the step passes; only the final attempt counts and feeds later steps', async (t) => {
+  const baseUrl = await startTarget(t);
+  const now = new Date().toISOString();
+  const step = (name: string, order: number, fields: object) => ({
+    id: randomUUID(),
+    name,
+    order,
+    createdAt: now,
+    updatedAt: now,
+    ...fields,
+  });
+  const done = {
+    id: randomUUID(),
+    target: 'body',
+    selector: 'status',
+    operator: 'equals',
+    expected: 'done',
+  };
+  const bucket = TestBucketSchema.parse({
+    id: randomUUID(),
+    name: 'retry',
+    baseUrl,
+    createdAt: now,
+    updatedAt: now,
+    actionGroups: [
+      {
+        id: randomUUID(),
+        name: 'g',
+        order: 0,
+        createdAt: now,
+        updatedAt: now,
+        steps: [
+          step('Poll', 0, {
+            path: '/job/a?n=3',
+            retry: { maxAttempts: 5, intervalMs: 50 },
+            assertions: [done],
+            extractions: [
+              { id: randomUUID(), variableName: 'result', source: 'body', selector: 'result' },
+            ],
+          }),
+          step('Use', 1, { path: '/echo?r={{steps.Poll.result}}' }),
+          step('Gives up', 2, {
+            path: '/job/b?n=9',
+            retry: { maxAttempts: 2, intervalMs: 10 },
+            assertions: [done],
+          }),
+          step('Still runs', 3, { path: '/ok' }), // a failed assertion doesn't end the iteration
+          step('Network', 4, {
+            path: 'http://127.0.0.1:1/x',
+            retry: { maxAttempts: 3, intervalMs: 10 },
+          }),
+          step('Never runs', 5, { path: '/ok' }), // a network failure does
+        ],
+      },
+    ],
+  });
+
+  const results: StepResult[] = [];
+  const started: string[] = [];
+  await executeGroup(bucket, bucket.actionGroups[0]!, {
+    runId: randomUUID(),
+    config: resolveConfig(),
+    signal: new AbortController().signal,
+    emit: (e) => e.type === 'step:started' && started.push(e.stepName),
+    onResult: (r) => void results.push(r),
+  });
+  const byName = Object.fromEntries(results.map((r) => [r.stepName, r]));
+
+  assert.deepEqual(
+    results.map((r) => r.stepName),
+    ['Poll', 'Use', 'Gives up', 'Still runs', 'Network'],
+    'one result per step, not per attempt',
+  );
+  assert.deepEqual(
+    started,
+    ['Poll', 'Use', 'Gives up', 'Still runs', 'Network'],
+    'one step:started per step',
+  );
+  assert.equal(isFailedResult(byName['Poll']!), false);
+  assert.equal(byName['Poll']!.attempts, 3);
+  assert.equal(
+    JSON.parse(byName['Poll']!.responseBody).polls,
+    3,
+    'the recorded response is the final one',
+  );
+  assert.ok(byName['Poll']!.elapsedMs! >= 100, `two 50 ms waits, got ${byName['Poll']!.elapsedMs}`);
+  assert.match(
+    byName['Use']!.url,
+    /\?r=42$/,
+    "the final attempt's extraction reaches the next step",
+  );
+  assert.equal(byName['Use']!.attempts, undefined, 'steps without retry carry no attempt count');
+  assert.deepEqual([isFailedResult(byName['Gives up']!), byName['Gives up']!.attempts], [true, 2]);
+  assert.deepEqual(
+    [!!byName['Network']!.error, byName['Network']!.attempts],
+    [true, 3],
+    'network errors are retried too',
+  );
+});
+
+test('retry: Stop interrupts the wait between attempts', async (t) => {
+  const baseUrl = await startTarget(t);
+  const { bucketId, groupId } = await saveFlow(baseUrl, ['/job/c?n=99']);
+  const stored = (await getBucketById(bucketId))!;
+  // "pending" comes back as HTTP 200, so the step needs an assertion to keep polling.
+  Object.assign(stored.actionGroups[0]!.steps[0]!, {
+    retry: { maxAttempts: 50, intervalMs: 2000 },
+    assertions: [
+      {
+        id: randomUUID(),
+        target: 'body',
+        selector: 'status',
+        operator: 'equals',
+        expected: 'done',
+      },
+    ],
+  });
+  await saveBucket(stored);
+
+  const runId = randomUUID();
+  const started = performance.now();
+  const running = runGroup(bucketId, groupId, runId, {}, () => {});
+  await new Promise((r) => setTimeout(r, 300));
+  cancelRun(runId);
+  await running;
+  const run = (await getRunById(runId))!;
+  assert.equal(run.status, 'cancelled');
+  assert.ok(performance.now() - started < 1500, 'did not sit out the 2 s wait');
+  assert.equal(run.results.length, 0, 'an unfinished poll is not recorded as a failure');
+
+  assert.throws(() =>
+    StepSchema.parse({
+      ...stored.actionGroups[0]!.steps[0],
+      retry: { maxAttempts: 1, intervalMs: 0 },
+    }),
+  );
+  assert.throws(() =>
+    StepSchema.parse({
+      ...stored.actionGroups[0]!.steps[0],
+      retry: { maxAttempts: 101, intervalMs: 0 },
+    }),
+  );
 });

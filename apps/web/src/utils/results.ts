@@ -42,6 +42,10 @@ export function prettyJson(text: string): string {
   }
 }
 
+/** " · 3 attempts in 4.1s" for retrying steps, "" otherwise. */
+export const attemptsLabel = (r: StepResult) =>
+  r.attempts ? ` · ${r.attempts} attempt${r.attempts === 1 ? '' : 's'} in ${((r.elapsedMs ?? 0) / 1000).toFixed(1)}s` : '';
+
 export function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${parseFloat((bytes / 1024).toFixed(2))} KB`;

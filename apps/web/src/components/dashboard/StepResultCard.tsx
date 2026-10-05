@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import type { StepResult } from '@fortest/types';
 import { CheckCircleIcon, XIcon, AlertCircleIcon } from '@/components/common/Icons';
-import { formatBytes, isExecuting, prettyJson, tint } from '@/utils/results';
+import { attemptsLabel, formatBytes, isExecuting, prettyJson, tint } from '@/utils/results';
 
 interface StepResultCardProps {
   result: StepResult;
@@ -59,7 +59,7 @@ export function StepResultCard({ result }: StepResultCardProps) {
                 : result.statusText || 'Failed'}
           </span>
           <span style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>
-            {result.responseTime} ms
+            {result.responseTime} ms{attemptsLabel(result)}
           </span>
         </div>
       </div>

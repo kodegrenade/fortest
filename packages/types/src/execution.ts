@@ -45,6 +45,9 @@ export const StepResultSchema = z.object({
   requestBody: z.string().optional(),
   // True when the bodies weren't kept: load runs only keep them for iteration 1 and failed steps.
   bodyOmitted: z.boolean().optional(),
+  // Retrying steps: how many requests were sent, and ms from the first send to the final response.
+  attempts: z.number().int().min(1).optional(),
+  elapsedMs: z.number().min(0).optional(),
   timestamp: z.string().datetime(),
   url: z.string().default(''),
   method: z.string().default('GET'),
