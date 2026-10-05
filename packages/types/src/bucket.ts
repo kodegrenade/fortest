@@ -12,7 +12,7 @@ export const ExtractionRuleSchema = z.object({
   id: z.string().uuid(),
   variableName: z.string().min(1),
   source: ExtractionSourceSchema.default('body'),
-  selector: z.string().min(1), // dot notation path, e.g. "data.user.id"
+  selector: z.string().default(''), // dot notation path, e.g. "data.user.id"; unused for 'status'
 });
 export type ExtractionRule = z.infer<typeof ExtractionRuleSchema>;
 

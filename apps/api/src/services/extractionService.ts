@@ -1,89 +1,59 @@
-import type { ProxyResponse, ExtractionSource } from '@fortest/types';
+import type { ProxyResponse, ExtractionSource, AssertionTarget } from '@fortest/types';
+
+const WHOLE_BODY = new Set(['', 'body', 'response.body']);
 
 /**
- * Resolves a dot-notation selector string against a nested object.
- * Example: resolveDotPath({ user: { profile: { id: 123 } } }, 'user.profile.id') => 123
+ * Resolves a dot-notation selector against a nested object. Accepts array indexes and an
+ * optional `body.` / `response.body.` prefix.
+ * Example: resolveDotPath({ users: [{ id: 7 }] }, 'body.users[0].id') => 7
  */
 export function resolveDotPath(obj: any, path: string): any {
-  if (obj === null || obj === undefined) return undefined;
-  if (!path) return obj;
-  
-  // Clean up prefix if user entered it (e.g. response.body.data => data)
-  let cleanPath = path;
-  if (cleanPath.startsWith('response.body.')) {
-    cleanPath = cleanPath.slice('response.body.'.length);
-  } else if (cleanPath.startsWith('body.')) {
-    cleanPath = cleanPath.slice('body.'.length);
-  }
-  
-  if (!cleanPath) return obj;
+  const clean = path.replace(/^(response\.)?body\./, '');
+  if (!clean) return obj;
+  return clean
+    .replace(/\[(\d+)\]/g, '.$1')
+    .split('.')
+    .reduce((current, key) => current?.[key], obj);
+}
 
-  const parts = cleanPath.split('.');
-  let current = obj;
-  
-  for (const part of parts) {
-    if (current === null || current === undefined) {
-      return undefined;
+/** The raw value a selector points at in a response (undefined if absent). */
+export function selectValue(
+  response: ProxyResponse,
+  source: ExtractionSource | AssertionTarget,
+  selector: string,
+): unknown {
+  switch (source) {
+    case 'status':
+      return response.status;
+    case 'response_time':
+      return response.time;
+    case 'header': {
+      const name = selector.toLowerCase();
+      return Object.entries(response.headers).find(([key]) => key.toLowerCase() === name)?.[1];
     }
-    // Handle array indexes if present (e.g. users[0])
-    const arrayMatch = part.match(/^([^\[]+)\[(\d+)\]$/);
-    if (arrayMatch && arrayMatch[1] && arrayMatch[2]) {
-      const key = arrayMatch[1];
-      const index = parseInt(arrayMatch[2], 10);
-      current = current[key];
-      if (Array.isArray(current)) {
-        current = current[index];
-      } else {
-        return undefined;
+    case 'body':
+      if (WHOLE_BODY.has(selector)) return response.body;
+      try {
+        return resolveDotPath(JSON.parse(response.body), selector);
+      } catch {
+        return undefined; // dot paths need a JSON body
       }
-    } else {
-      current = current[part];
-    }
   }
-  
-  return current;
+}
+
+/** String form of a selected value; objects and arrays become JSON. */
+export function stringify(value: unknown): string | null {
+  if (value === undefined || value === null) return null;
+  return typeof value === 'object' ? JSON.stringify(value) : String(value);
 }
 
 /**
- * Extracts a value from a step's proxy response according to an extraction source and selector.
+ * Extracts a value from a step's response according to an extraction source and selector.
  */
 export function extractValue(
   response: ProxyResponse,
   source: ExtractionSource,
-  selector: string
+  selector: string,
 ): string | null {
-  if (source === 'status') {
-    return String(response.status);
-  }
-  if (source === 'header') {
-    const headers = response.headers;
-    const lowerSelector = selector.toLowerCase();
-    // Case-insensitive lookup
-    for (const key of Object.keys(headers)) {
-      if (key.toLowerCase() === lowerSelector) {
-        return headers[key] ?? null;
-      }
-    }
-    return null;
-  }
-
-  // Parse body as JSON
-  try {
-    const parsedBody = JSON.parse(response.body);
-    const value = resolveDotPath(parsedBody, selector);
-    if (value === undefined || value === null) {
-      return null;
-    }
-    if (typeof value === 'object') {
-      return JSON.stringify(value);
-    }
-    return String(value);
-  } catch {
-    // If response body is not JSON, we cannot parse dot notation paths.
-    // However, if the selector is empty or matches the whole body, return it raw.
-    if (!selector || selector === 'body' || selector === 'response.body') {
-      return response.body;
-    }
-    return null;
-  }
+  return stringify(selectValue(response, source, selector));
 }

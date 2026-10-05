@@ -2,7 +2,7 @@ import { z } from 'zod';
 
 // --- Execution Configuration ---
 
-export const ExecutionModeSchema = z.enum(['manual', 'load', 'scheduled']);
+export const ExecutionModeSchema = z.enum(['manual', 'load']);
 export type ExecutionMode = z.infer<typeof ExecutionModeSchema>;
 
 export const ExecutionConfigSchema = z.object({
@@ -87,59 +87,3 @@ export const ExecutionRunSchema = z.object({
   createdAt: z.string().datetime(),
 });
 export type ExecutionRun = z.infer<typeof ExecutionRunSchema>;
-
-// --- WebSocket Execution Events ---
-
-export const ExecutionEventSchema = z.discriminatedUnion('type', [
-  z.object({
-    type: z.literal('run:started'),
-    runId: z.string().uuid(),
-    timestamp: z.string().datetime(),
-    totalSteps: z.number().int(),
-    totalIterations: z.number().int(),
-  }),
-  z.object({
-    type: z.literal('step:started'),
-    runId: z.string().uuid(),
-    stepId: z.string().uuid(),
-    stepName: z.string(),
-    iteration: z.number().int(),
-  }),
-  z.object({
-    type: z.literal('step:completed'),
-    runId: z.string().uuid(),
-    stepId: z.string().uuid(),
-    stepName: z.string(),
-    iteration: z.number().int(),
-    statusCode: z.number(),
-    responseTime: z.number(),
-    extractedData: z.record(z.string(), z.unknown()),
-    assertions: z.array(AssertionResultSchema),
-  }),
-  z.object({
-    type: z.literal('step:failed'),
-    runId: z.string().uuid(),
-    stepId: z.string().uuid(),
-    stepName: z.string(),
-    iteration: z.number().int(),
-    error: z.string(),
-    responseTime: z.number(),
-  }),
-  z.object({
-    type: z.literal('metrics:update'),
-    runId: z.string().uuid(),
-    metrics: AggregateMetricsSchema,
-  }),
-  z.object({
-    type: z.literal('run:completed'),
-    runId: z.string().uuid(),
-    duration: z.number(),
-    summary: AggregateMetricsSchema,
-  }),
-  z.object({
-    type: z.literal('run:failed'),
-    runId: z.string().uuid(),
-    error: z.string(),
-  }),
-]);
-export type ExecutionEvent = z.infer<typeof ExecutionEventSchema>;

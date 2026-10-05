@@ -139,7 +139,7 @@ Rules that extract values from a response and save them as variables for subsequ
 | Property | Type | Required / Optional | Description |
 | :--- | :--- | :--- | :--- |
 | `variableName` | String | **Required** | The variable name to store the value (referenced as `{{steps.StepName.variableName}}`). |
-| `selector` | String | **Required** | Path selector mapping. For `body`, use dot-notation (e.g., `user.auth_token`). |
+| `selector` | String | **Required** for `body` and `header` | Path selector mapping. For `body`, use dot-notation (e.g., `user.auth_token`); for `header`, the header name. Not needed for `status`. |
 | `source` | String | Optional | Where to extract from (`"body"`, `"header"`, `"status"`). Default: `"body"`. |
 
 ---

@@ -1,8 +1,8 @@
-import crypto from 'crypto';
+import { randomUUID } from 'node:crypto';
 import { getBucketById } from './bucketService';
 import { getStorageAdapter } from './storage';
 import { interpolate, parseFormPairs } from '@fortest/utils';
-import { extractValue } from './extractionService';
+import { extractValue, stringify } from './extractionService';
 import { evaluateAssertions } from './assertionService';
 import type {
   StepResult,
@@ -12,6 +12,7 @@ import type {
   AuthConfig,
   ExecutionConfig,
   AggregateMetrics,
+  KeyValuePair,
 } from '@fortest/types';
 
 /**
@@ -46,25 +47,28 @@ export function joinUrl(baseUrl: string, path: string): string {
   return baseUrl.endsWith('/') ? baseUrl + path : `${baseUrl}/${path}`;
 }
 
-/**
- * Helper to build authorization headers based on AuthConfig and active variables.
- */
-function resolveAuthHeaders(auth: AuthConfig, variables: BucketVariable[]): Record<string, string> {
+/** Interpolates the enabled pairs of a header, param or form-field list. */
+function resolvePairs(pairs: KeyValuePair[], variables: BucketVariable[]): [string, string][] {
+  return pairs
+    .filter((p) => p.enabled)
+    .map((p) => [interpolate(p.key, variables).resolved, interpolate(p.value, variables).resolved]);
+}
+
+/** Headers and query params contributed by an auth config. */
+function resolveAuth(auth: AuthConfig, variables: BucketVariable[]) {
+  const v = (s: string) => interpolate(s, variables).resolved;
   const headers: Record<string, string> = {};
+  const query: [string, string][] = [];
   if (auth.type === 'bearer' && auth.bearer?.token) {
-    const token = interpolate(auth.bearer.token, variables).resolved;
-    headers['Authorization'] = `Bearer ${token}`;
+    headers['Authorization'] = `Bearer ${v(auth.bearer.token)}`;
   } else if (auth.type === 'basic' && auth.basic) {
-    const username = interpolate(auth.basic.username, variables).resolved;
-    const password = interpolate(auth.basic.password, variables).resolved;
-    const credentials = Buffer.from(`${username}:${password}`).toString('base64');
-    headers['Authorization'] = `Basic ${credentials}`;
-  } else if (auth.type === 'api-key' && auth.apiKey && auth.apiKey.addTo === 'header') {
-    const key = interpolate(auth.apiKey.key, variables).resolved;
-    const value = interpolate(auth.apiKey.value, variables).resolved;
-    headers[key] = value;
+    headers['Authorization'] = `Basic ${Buffer.from(`${v(auth.basic.username)}:${v(auth.basic.password)}`).toString('base64')}`;
+  } else if (auth.type === 'api-key' && auth.apiKey) {
+    const pair: [string, string] = [v(auth.apiKey.key), v(auth.apiKey.value)];
+    if (auth.apiKey.addTo === 'query') query.push(pair);
+    else headers[pair[0]] = pair[1];
   }
-  return headers;
+  return { headers, query };
 }
 
 /**
@@ -87,12 +91,13 @@ export async function runGroup(
     throw new Error(`Action Group not found: ${groupId}`);
   }
 
+  const iterations = inputConfig?.iterations ?? 1;
   const config: ExecutionConfig = {
-    mode: inputConfig?.mode || (inputConfig?.iterations && inputConfig.iterations > 1 ? 'load' : 'manual'),
-    iterations: inputConfig?.iterations || 1,
-    concurrency: inputConfig?.concurrency || 1,
-    delayBetweenSteps: inputConfig?.delayBetweenSteps || 0,
-    useDataStore: inputConfig?.useDataStore || false,
+    mode: inputConfig?.mode ?? (iterations > 1 ? 'load' : 'manual'),
+    iterations,
+    concurrency: inputConfig?.concurrency ?? 1,
+    delayBetweenSteps: inputConfig?.delayBetweenSteps ?? 0,
+    useDataStore: inputConfig?.useDataStore ?? false,
   };
 
   const run: ExecutionRun = {
@@ -110,9 +115,7 @@ export async function runGroup(
   await saveRun(run);
 
   // Associate run with action group history
-  const runsKey = `group:${groupId}:runs`;
-  const adapter = getStorageAdapter();
-  await adapter.zadd(runsKey, Date.now(), runId);
+  await getStorageAdapter().zadd(`group:${groupId}:runs`, Date.now(), runId);
 
   // Give the WebSocket client a moment to connect and subscribe
   await new Promise((resolve) => setTimeout(resolve, 100));
@@ -126,324 +129,180 @@ export async function runGroup(
   });
 
   const startTime = performance.now();
+  const sortedSteps = [...group.steps].sort((a, b) => a.order - b.order);
+  const records = config.useDataStore ? (group.dataStore?.records ?? []) : [];
 
-  const totalIterations = config.iterations;
-  const maxConcurrency = Math.min(config.concurrency, totalIterations);
-  const delay = config.delayBetweenSteps;
+  const recordResult = async (result: StepResult) => {
+    run.results.push(result);
+    await saveRun(run);
+  };
 
-  const queue: number[] = Array.from({ length: totalIterations }, (_, i) => i + 1);
-
-  const runSingleIteration = async (iterNum: number) => {
-    // 1. Independent variable context for this iteration
-    const iterVariables: BucketVariable[] = [...(bucket.variables || [])];
-
-    // 2. Inject Data Store record if enabled
-    if (config.useDataStore && group.dataStore && group.dataStore.records.length > 0) {
-      const records = group.dataStore.records;
-      const record = records[(iterNum - 1) % records.length];
-      if (record) {
-        for (const [key, val] of Object.entries(record)) {
-          iterVariables.push({
-            id: crypto.randomUUID(),
-            key,
-            value: typeof val === 'object' && val !== null ? JSON.stringify(val) : String(val),
-            enabled: true,
-          });
-        }
-      }
+  const runSingleIteration = async (iteration: number) => {
+    // Independent variable context per iteration: bucket variables, then this iteration's
+    // data-store record (overrides them), then values extracted by earlier steps.
+    const variables: BucketVariable[] = [...bucket.variables];
+    for (const [key, val] of Object.entries(records[(iteration - 1) % records.length] ?? {})) {
+      variables.push({ id: randomUUID(), key, value: stringify(val) ?? '', enabled: true });
     }
-
-    const sortedSteps = [...group.steps].sort((a, b) => a.order - b.order);
+    const v = (s: string) => interpolate(s, variables).resolved;
 
     for (const step of sortedSteps) {
       const stepStartTime = performance.now();
-      let finalUrl = '';
-      let finalBody: string | undefined = undefined;
+      const base = { stepId: step.id, stepName: step.name, iteration, method: step.method };
+      let url = '';
+      let requestBodyText: string | undefined;
 
-      emitEvent({
-        type: 'step:started',
-        runId,
-        stepId: step.id,
-        stepName: step.name,
-        iteration: iterNum,
-      });
+      emitEvent({ type: 'step:started', runId, ...base });
 
       try {
-        // 1. Resolve interpolation context
-        const resPath = interpolate(step.path || '', iterVariables).resolved;
-        
-        // Resolve Query parameters
-        const resolvedParams: string[] = [];
-        for (const p of step.params || []) {
-          if (!p.enabled) continue;
-          const resKey = interpolate(p.key, iterVariables).resolved;
-          const resVal = interpolate(p.value, iterVariables).resolved;
-          resolvedParams.push(`${encodeURIComponent(resKey)}=${encodeURIComponent(resVal)}`);
+        // 1. URL: path + enabled query params (+ api-key auth in the query)
+        const auth = resolveAuth(step.auth.type !== 'none' ? step.auth : bucket.auth, variables);
+        const query = [...resolvePairs(step.params, variables), ...auth.query]
+          .map(([k, val]) => `${encodeURIComponent(k)}=${encodeURIComponent(val)}`)
+          .join('&');
+        const path = v(step.path);
+        url = joinUrl(v(bucket.baseUrl), query ? `${path}${path.includes('?') ? '&' : '?'}${query}` : path);
+
+        // 2. Headers (names are case-insensitive; users type them in any case)
+        const headers: Record<string, string> = { ...Object.fromEntries(resolvePairs(step.headers, variables)), ...auth.headers };
+        const contentTypeKeys = Object.keys(headers).filter((k) => k.toLowerCase() === 'content-type');
+        if (step.body.type === 'json' && contentTypeKeys.length === 0) {
+          headers['content-type'] = 'application/json';
         }
 
-        // Add query param auth if applicable
-        const activeAuth = step.auth && step.auth.type !== 'none' ? step.auth : bucket.auth;
-        if (activeAuth.type === 'api-key' && activeAuth.apiKey && activeAuth.apiKey.addTo === 'query') {
-          const key = interpolate(activeAuth.apiKey.key, iterVariables).resolved;
-          const value = interpolate(activeAuth.apiKey.value, iterVariables).resolved;
-          resolvedParams.push(`${encodeURIComponent(key)}=${encodeURIComponent(value)}`);
-        }
-
-        let finalPath = resPath;
-        if (resolvedParams.length > 0) {
-          finalPath += (finalPath.includes('?') ? '&' : '?') + resolvedParams.join('&');
-        }
-
-        finalUrl = joinUrl(interpolate(bucket.baseUrl || '', iterVariables).resolved, finalPath);
-
-        // 2. Resolve request headers
-        const resolvedHeaders: Record<string, string> = {};
-        for (const h of step.headers || []) {
-          if (!h.enabled) continue;
-          const resKey = interpolate(h.key, iterVariables).resolved;
-          const resVal = interpolate(h.value, iterVariables).resolved;
-          resolvedHeaders[resKey] = resVal;
-        }
-
-        // Merge auth headers
-        const authHeaders = resolveAuthHeaders(activeAuth, iterVariables);
-        Object.assign(resolvedHeaders, authHeaders);
-
-        // Header names are case-insensitive; users type them in any case.
-        const contentTypeKeys = Object.keys(resolvedHeaders).filter((k) => k.toLowerCase() === 'content-type');
-
-        // Default JSON content type if JSON body
-        if (step.body && step.body.type === 'json' && contentTypeKeys.length === 0) {
-          resolvedHeaders['content-type'] = 'application/json';
-        }
-
-        // 3. Resolve Body Content
-        // Form bodies are interpolated per field and then encoded, so variable values are escaped correctly.
-        finalBody = undefined;
-        let requestBody: string | URLSearchParams | FormData | undefined;
-        if (step.body?.type === 'form-data' || step.body?.type === 'x-www-form-urlencoded') {
-          const pairs = parseFormPairs(step.body.content)
-            .filter((p) => p.enabled && p.key.trim() !== '')
-            .map((p): [string, string] => [
-              interpolate(p.key, iterVariables).resolved,
-              interpolate(p.value, iterVariables).resolved,
-            ]);
-          finalBody = new URLSearchParams(pairs).toString();
+        // 3. Body. Form bodies are interpolated per field and then encoded, so variable values are escaped correctly.
+        let body: string | URLSearchParams | FormData | undefined;
+        if (step.body.type === 'form-data' || step.body.type === 'x-www-form-urlencoded') {
+          const fields = resolvePairs(parseFormPairs(step.body.content).filter((p) => p.key.trim() !== ''), variables);
+          requestBodyText = new URLSearchParams(fields).toString();
           if (step.body.type === 'form-data') {
-            requestBody = new FormData();
-            for (const [k, v] of pairs) requestBody.append(k, v);
+            body = new FormData();
+            for (const [k, val] of fields) body.append(k, val);
             // fetch must set multipart/form-data itself, with the boundary.
-            for (const k of contentTypeKeys) delete resolvedHeaders[k];
+            for (const k of contentTypeKeys) delete headers[k];
           } else {
-            requestBody = new URLSearchParams(pairs);
+            body = new URLSearchParams(fields);
           }
-        } else if (step.body && step.body.type !== 'none') {
-          finalBody = requestBody = interpolate(step.body.content, iterVariables).resolved;
+        } else if (step.body.type !== 'none') {
+          body = requestBodyText = v(step.body.content);
         }
+        // fetch rejects a body on GET/HEAD; the editor allows one on any method, so drop it here.
+        if (step.method === 'GET' || step.method === 'HEAD') body = requestBodyText = undefined;
 
-        // 4. Execute HTTP Request
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 10000);
-
-        let fetchResponse: Response;
-        try {
-          fetchResponse = await fetch(finalUrl, {
-            method: step.method,
-            headers: resolvedHeaders,
-            body: requestBody,
-            signal: controller.signal,
-            redirect: 'follow',
-          });
-        } finally {
-          clearTimeout(timeoutId);
-        }
-
-        const stepElapsed = performance.now() - stepStartTime;
-        const responseBody = await fetchResponse.text();
-
-        const responseHeaders: Record<string, string> = {};
-        fetchResponse.headers.forEach((val, key) => {
-          responseHeaders[key] = val;
+        // 4. Execute
+        const res = await fetch(url, {
+          method: step.method,
+          headers,
+          body,
+          signal: AbortSignal.timeout(10_000),
+          redirect: 'follow',
         });
-
-        const contentType = responseHeaders['content-type'] ?? 'application/octet-stream';
-
-        const proxyResponse: ProxyResponse = {
-          status: fetchResponse.status,
-          statusText: fetchResponse.statusText,
-          headers: responseHeaders,
+        const time = Math.round(performance.now() - stepStartTime); // time to response headers
+        const responseBody = await res.text();
+        const response: ProxyResponse = {
+          status: res.status,
+          statusText: res.statusText,
+          headers: Object.fromEntries(res.headers),
           body: responseBody,
-          size: new TextEncoder().encode(responseBody).byteLength,
-          time: Math.round(stepElapsed),
-          contentType,
+          size: Buffer.byteLength(responseBody),
+          time,
+          contentType: res.headers.get('content-type') ?? 'application/octet-stream',
         };
 
-        // 5. Perform Extractions
-        const extractedData: Record<string, any> = {};
-        for (const rule of step.extractions || []) {
-          if (!rule.variableName || !rule.selector) continue;
-          const value = extractValue(proxyResponse, rule.source, rule.selector);
+        // 5. Extractions, injected into this iteration's context for downstream steps
+        const extractedData: Record<string, string | null> = {};
+        for (const rule of step.extractions) {
+          if (!rule.variableName || (rule.source !== 'status' && !rule.selector)) continue;
+          const value = extractValue(response, rule.source, rule.selector);
           extractedData[rule.variableName] = value;
-          // Inject into current iteration variable context for downstream steps
-          iterVariables.push({
-            id: crypto.randomUUID(),
-            key: `steps.${step.name}.${rule.variableName}`,
-            value: value || '',
-            enabled: true,
-          });
+          variables.push({ id: randomUUID(), key: `steps.${step.name}.${rule.variableName}`, value: value ?? '', enabled: true });
         }
 
-        // 6. Evaluate Assertions
-        // Expected values may reference variables, e.g. {{defaultRole}} or {{steps.Login.userId}}.
-        const assertionResults = evaluateAssertions(
-          proxyResponse,
-          (step.assertions || []).map((a) => ({ ...a, expected: interpolate(a.expected, iterVariables).resolved })),
+        // 6. Assertions. Expected values may reference variables, e.g. {{defaultRole}} or {{steps.Login.userId}}.
+        const assertions = evaluateAssertions(
+          response,
+          step.assertions.map((a) => ({ ...a, expected: v(a.expected) })),
         );
 
-        // 7. Construct Step Result
-        const stepResult: StepResult = {
-          stepId: step.id,
-          stepName: step.name,
-          iteration: iterNum,
-          status: fetchResponse.status,
-          statusText: fetchResponse.statusText,
-          responseTime: Math.round(stepElapsed),
-          responseSize: proxyResponse.size,
-          responseHeaders,
+        await recordResult({
+          ...base,
+          status: res.status,
+          statusText: res.statusText,
+          responseTime: time,
+          responseSize: response.size,
+          responseHeaders: response.headers,
           responseBody,
-          contentType,
+          contentType: response.contentType,
           extractedData,
-          assertions: assertionResults,
-          requestBody: finalBody,
+          assertions,
+          requestBody: requestBodyText,
           timestamp: new Date().toISOString(),
-          url: finalUrl,
-          method: step.method,
-        };
-
-        run.results.push(stepResult);
-        await saveRun(run);
-
-        emitEvent({
-          type: 'step:completed',
-          runId,
-          stepId: step.id,
-          stepName: step.name,
-          iteration: iterNum,
-          statusCode: fetchResponse.status,
-          responseTime: Math.round(stepElapsed),
-          extractedData,
-          assertions: assertionResults,
-          url: finalUrl,
-          method: step.method,
+          url,
         });
-      } catch (stepErr: any) {
-        const stepElapsed = performance.now() - stepStartTime;
-        const stepResult: StepResult = {
-          stepId: step.id,
-          stepName: step.name,
-          iteration: iterNum,
+        emitEvent({ type: 'step:completed', runId, ...base, statusCode: res.status, responseTime: time, extractedData, assertions, url });
+      } catch (stepErr) {
+        const error = stepErr instanceof Error ? stepErr.message : 'Unknown network or execution error';
+        const responseTime = Math.round(performance.now() - stepStartTime);
+        url ||= step.path;
+
+        await recordResult({
+          ...base,
           status: 0,
           statusText: 'Failed',
-          responseTime: Math.round(stepElapsed),
+          responseTime,
           responseSize: 0,
           responseHeaders: {},
           responseBody: '',
           contentType: 'text/plain',
           extractedData: {},
           assertions: [],
-          error: stepErr.message || 'Unknown network or execution error',
-          requestBody: finalBody,
+          error,
+          requestBody: requestBodyText,
           timestamp: new Date().toISOString(),
-          url: finalUrl || step.path || '',
-          method: step.method,
-        };
-
-        run.results.push(stepResult);
-        await saveRun(run);
-
-        emitEvent({
-          type: 'step:failed',
-          runId,
-          stepId: step.id,
-          stepName: step.name,
-          iteration: iterNum,
-          error: stepErr.message || 'Unknown network or execution error',
-          responseTime: Math.round(stepElapsed),
-          url: finalUrl || step.path || '',
-          method: step.method,
+          url,
         });
+        emitEvent({ type: 'step:failed', runId, ...base, error, responseTime, url });
 
-        // Break out of steps loop for this iteration
+        // A failed request ends this iteration
         return;
       }
 
-      // Delay between steps within one iteration
-      if (delay > 0) {
-        await new Promise((resolve) => setTimeout(resolve, delay));
+      if (config.delayBetweenSteps > 0) {
+        await new Promise((resolve) => setTimeout(resolve, config.delayBetweenSteps));
       }
     }
   };
 
-  const runNextIteration = async (): Promise<void> => {
-    if (queue.length === 0) return;
-    const iterNum = queue.shift()!;
-    try {
-      await runSingleIteration(iterNum);
-    } catch (err) {
-      console.error(`Error executing iteration ${iterNum}:`, err);
+  // Worker pool: `concurrency` workers pull iteration numbers until none are left.
+  let nextIteration = 1;
+  const worker = async () => {
+    while (nextIteration <= config.iterations) {
+      const iteration = nextIteration++;
+      await runSingleIteration(iteration).catch((err) => console.error(`Error executing iteration ${iteration}:`, err));
     }
-    await runNextIteration();
   };
 
   try {
-    // Spawn maxConcurrency parallel consumer flows
-    const workers: Promise<void>[] = [];
-    for (let w = 0; w < maxConcurrency; w++) {
-      workers.push(runNextIteration());
-    }
-    await Promise.all(workers);
+    await Promise.all(Array.from({ length: Math.min(config.concurrency, config.iterations) }, worker));
 
-    // After all iterations are complete:
     const duration = performance.now() - startTime;
     run.status = 'completed';
     run.completedAt = new Date().toISOString();
     run.duration = Math.round(duration);
-
     run.metrics = computeMetrics(run.results, duration);
-    const { totalRequests, completed, failed } = run.metrics;
-
     await saveRun(run);
 
-    emitEvent({
-      type: 'run:completed',
-      runId,
-      summary: {
-        totalRequests,
-        completed,
-        failed,
-      },
-      duration: Math.round(duration),
-    });
-
-    // Trim old runs in background
-    trimOldRuns(groupId).catch((e) => console.error('Error trimming runs:', e));
-
-  } catch (err: any) {
-    const elapsed = performance.now() - startTime;
+    const { totalRequests, completed, failed } = run.metrics;
+    emitEvent({ type: 'run:completed', runId, summary: { totalRequests, completed, failed }, duration: run.duration });
+  } catch (err) {
     console.error(`Execution failed for run ${runId}`, err);
-
     run.status = 'failed';
     run.completedAt = new Date().toISOString();
-    run.duration = Math.round(elapsed);
+    run.duration = Math.round(performance.now() - startTime);
     await saveRun(run);
 
-    emitEvent({
-      type: 'run:failed',
-      runId,
-      error: err.message || 'Unknown execution error',
-    });
-
-    // Trim old runs in background
+    emitEvent({ type: 'run:failed', runId, error: err instanceof Error ? err.message : 'Unknown execution error' });
+  } finally {
     trimOldRuns(groupId).catch((e) => console.error('Error trimming runs:', e));
   }
 }

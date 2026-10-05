@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { useSidebarStore } from '@/stores/sidebarStore';
 import { useBucketStore } from '@/stores/bucketStore';
 import {
@@ -8,28 +8,10 @@ import {
   TrashIcon,
   ChevronLeftIcon,
   ChevronRightIcon,
+  HomeIcon,
 } from '@/components/common/Icons';
-import { ConfirmDialog } from '@/components/common/ConfirmDialog';
-import { ActionGroupDialog } from '@/components/common/ActionGroupDialog';
-import { useToastStore } from '@/stores/toastStore';
+import { ActionGroupDialogs, type GroupDialogState } from '@/components/common/ActionGroupDialogs';
 import '../buckets/Buckets.css';
-
-const HomeIcon = ({ size = 16 }: { size?: number }) => (
-  <svg
-    width={size}
-    height={size}
-    viewBox="0 0 24 24"
-    fill="none"
-    stroke="currentColor"
-    strokeWidth={2}
-    strokeLinecap="round"
-    strokeLinejoin="round"
-    style={{ flexShrink: 0 }}
-  >
-    <path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
-    <polyline points="9 22 9 12 15 12 15 22" />
-  </svg>
-);
 
 export function Sidebar() {
   const isCollapsed = useSidebarStore((s) => s.isCollapsed);
@@ -41,68 +23,13 @@ export function Sidebar() {
     activeGroupId,
     setActiveBucket,
     setActiveGroup,
-    addActionGroup,
-    updateActionGroup,
-    deleteActionGroup,
   } = useBucketStore();
-  const { addToast } = useToastStore();
 
   const activeBucket = buckets.find((b) => b.id === activeBucketId);
 
-  // Dialog state for action group management
-  const [dialogState, setDialogState] = useState<{
-    type: 'createGroup' | 'renameGroup' | 'deleteGroup' | null;
-    groupId?: string;
-    initialValue?: string;
-    initialDescription?: string;
-  }>({ type: null });
-
-  useEffect(() => {
-    if (dialogState.type !== null) {
-      document.body.style.overflow = 'hidden';
-    } else {
-      document.body.style.overflow = '';
-    }
-    return () => {
-      document.body.style.overflow = '';
-    };
-  }, [dialogState.type]);
+  const [dialogState, setDialogState] = useState<GroupDialogState>({ type: null });
 
   if (!activeBucket) return null;
-
-  const handleCreateGroupConfirm = async (name: string, description: string) => {
-    try {
-      await addActionGroup(activeBucket.id, name, description);
-      addToast(`Action group "${name}" created successfully`, 'success');
-    } catch (err: any) {
-      addToast(err.message || 'Failed to create action group', 'error');
-    }
-    setDialogState({ type: null });
-  };
-
-  const handleRenameGroupConfirm = async (name: string, description: string) => {
-    if (dialogState.groupId) {
-      try {
-        await updateActionGroup(activeBucket.id, dialogState.groupId, { name, description });
-        addToast(`Action group updated successfully`, 'success');
-      } catch (err: any) {
-        addToast(err.message || 'Failed to update action group', 'error');
-      }
-    }
-    setDialogState({ type: null });
-  };
-
-  const handleDeleteGroupConfirm = async () => {
-    if (dialogState.groupId) {
-      try {
-        await deleteActionGroup(activeBucket.id, dialogState.groupId);
-        addToast('Action group deleted successfully', 'success');
-      } catch (err: any) {
-        addToast(err.message || 'Failed to delete action group', 'error');
-      }
-    }
-    setDialogState({ type: null });
-  };
 
   const sidebarClass = `sidebar${isCollapsed ? ' sidebar--collapsed' : ''}`;
 
@@ -116,7 +43,7 @@ export function Sidebar() {
           title="Back to Dashboard Hub"
           style={isCollapsed ? { width: '32px', height: '32px', padding: 0, justifyContent: 'center' } : {}}
         >
-          <HomeIcon size={16} />
+          <HomeIcon size={16} style={{ flexShrink: 0 }} />
           {!isCollapsed && <span>Dashboard Hub</span>}
         </button>
 
@@ -239,40 +166,7 @@ export function Sidebar() {
         </div>
       </aside>
 
-      {/* Modals */}
-      {dialogState.type === 'createGroup' && (
-        <ActionGroupDialog
-          isOpen={true}
-          title="Create Action Group"
-          submitText="Create"
-          onConfirm={handleCreateGroupConfirm}
-          onCancel={() => setDialogState({ type: null })}
-        />
-      )}
-
-      {dialogState.type === 'renameGroup' && (
-        <ActionGroupDialog
-          isOpen={true}
-          title="Edit Action Group"
-          submitText="Save"
-          initialName={dialogState.initialValue}
-          initialDescription={dialogState.initialDescription}
-          onConfirm={handleRenameGroupConfirm}
-          onCancel={() => setDialogState({ type: null })}
-        />
-      )}
-
-      {dialogState.type === 'deleteGroup' && (
-        <ConfirmDialog
-          isOpen={true}
-          title="Delete Action Group"
-          message="Are you sure you want to delete this action group? This will permanently delete all steps in this group."
-          confirmText="Delete"
-          isDanger={true}
-          onConfirm={handleDeleteGroupConfirm}
-          onCancel={() => setDialogState({ type: null })}
-        />
-      )}
+      <ActionGroupDialogs bucketId={activeBucket.id} state={dialogState} onClose={() => setDialogState({ type: null })} />
     </>
   );
 }

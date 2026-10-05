@@ -1,18 +1,6 @@
 import { z } from 'zod';
-import { HttpMethodSchema } from './request';
 
-// --- Proxy Request (what the frontend sends to the backend) ---
-
-export const ProxyRequestSchema = z.object({
-  method: HttpMethodSchema,
-  url: z.string().url(),
-  headers: z.record(z.string(), z.string()).default({}),
-  body: z.string().optional(),
-  timeout: z.number().int().positive().max(120000).default(30000),
-});
-export type ProxyRequest = z.infer<typeof ProxyRequestSchema>;
-
-// --- Proxy Response (what the backend returns to the frontend) ---
+// --- HTTP Response (as captured by the runner for each step) ---
 
 export const ProxyResponseSchema = z.object({
   status: z.number(),

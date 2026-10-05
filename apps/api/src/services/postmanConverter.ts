@@ -1,51 +1,30 @@
-import { v4 as uuidv4 } from 'uuid';
-import type { TestBucket, ActionGroup, Step, BucketVariable } from '@fortest/types';
-import type { AuthConfig, RequestBody, KeyValuePair } from '@fortest/types';
+import { randomUUID } from 'node:crypto';
+import { HttpMethodSchema } from '@fortest/types';
+import type {
+  TestBucket,
+  ActionGroup,
+  Step,
+  AuthConfig,
+  RequestBody,
+  KeyValuePair,
+} from '@fortest/types';
 
 // ---------------------------------------------------------------------------
-// Postman Collection Types (v2.0 / v2.1)
+// Postman Collection shapes (v2.0 / v2.1) — only the fields the converter reads
 // ---------------------------------------------------------------------------
 
-interface PostmanInfo {
-  name: string;
-  description?: string;
-  schema?: string;
-  _postman_id?: string;
-}
-
-interface PostmanVariable {
+interface PostmanKV {
   key: string;
-  value: string;
-  type?: string;
+  value?: string;
+  description?: string;
   disabled?: boolean;
 }
 
-interface PostmanAuthParam {
-  key: string;
-  value: string;
-  type?: string;
-}
-
+// Params live under the type's name: auth.bearer, auth.basic, auth.apikey
+// (an array of {key, value} in v2.1, a plain object in v2.0).
 interface PostmanAuth {
   type: string;
-  bearer?: PostmanAuthParam[];
-  basic?: PostmanAuthParam[];
-  apikey?: PostmanAuthParam[];
-  [key: string]: unknown;
-}
-
-interface PostmanHeader {
-  key: string;
-  value: string;
-  description?: string;
-  disabled?: boolean;
-}
-
-interface PostmanQueryParam {
-  key: string;
-  value: string;
-  description?: string;
-  disabled?: boolean;
+  [params: string]: unknown;
 }
 
 interface PostmanUrl {
@@ -54,59 +33,38 @@ interface PostmanUrl {
   host?: string[];
   port?: string;
   path?: string[];
-  query?: PostmanQueryParam[];
-}
-
-interface PostmanBodyOptions {
-  raw?: { language?: string };
-}
-
-interface PostmanFormParam {
-  key: string;
-  value?: string;
-  type?: string;
-  description?: string;
-  disabled?: boolean;
+  query?: PostmanKV[];
 }
 
 interface PostmanBody {
   mode?: string;
   raw?: string;
-  formdata?: PostmanFormParam[];
-  urlencoded?: PostmanFormParam[];
-  options?: PostmanBodyOptions;
-}
-
-interface PostmanRequest {
-  method?: string;
-  header?: PostmanHeader[];
-  body?: PostmanBody;
-  url?: PostmanUrl | string;
-  auth?: PostmanAuth;
-  description?: string;
+  formdata?: PostmanKV[];
+  urlencoded?: PostmanKV[];
+  options?: { raw?: { language?: string } };
 }
 
 interface PostmanItem {
   name?: string;
-  description?: string;
-  request?: PostmanRequest;
-  item?: PostmanItem[];       // folders contain nested items
-  auth?: PostmanAuth;
-  variable?: PostmanVariable[];
-  event?: unknown[];           // test scripts — skipped for v1
+  description?: unknown;
+  item?: PostmanItem[]; // folders contain nested items
+  event?: unknown[]; // pre-request/test scripts — not imported
+  request?: {
+    method?: string;
+    header?: PostmanKV[];
+    body?: PostmanBody;
+    url?: PostmanUrl | string;
+    auth?: PostmanAuth;
+  };
 }
 
 interface PostmanCollection {
-  info: PostmanInfo;
+  info: { name?: string; schema?: string; _postman_id?: string };
   item: PostmanItem[];
-  variable?: PostmanVariable[];
+  variable?: PostmanKV[];
   auth?: PostmanAuth;
   event?: unknown[];
 }
-
-// ---------------------------------------------------------------------------
-// Conversion Result
-// ---------------------------------------------------------------------------
 
 export interface ConversionResult {
   bucket: TestBucket;
@@ -118,38 +76,13 @@ export interface ConversionResult {
 // ---------------------------------------------------------------------------
 
 /**
- * Detects whether a parsed JSON object is a Postman Collection.
- * Checks for the `info.schema` URL pattern or the `_postman_id` field.
+ * Detects whether a parsed JSON object is a Postman Collection, by its `info.schema` URL
+ * or `info._postman_id`.
  */
 export function isPostmanCollection(data: unknown): data is PostmanCollection {
-  if (typeof data !== 'object' || data === null || Array.isArray(data)) {
-    return false;
-  }
-
-  const obj = data as Record<string, unknown>;
-  const info = obj.info as Record<string, unknown> | undefined;
-
-  if (!info || typeof info !== 'object') {
-    return false;
-  }
-
-  // Check for schema URL (primary indicator)
-  if (typeof info.schema === 'string') {
-    const schema = info.schema.toLowerCase();
-    if (
-      schema.includes('schema.getpostman.com') ||
-      schema.includes('schema.postman.com')
-    ) {
-      return true;
-    }
-  }
-
-  // Fallback: check for _postman_id
-  if (typeof info._postman_id === 'string' && info._postman_id.length > 0) {
-    return true;
-  }
-
-  return false;
+  const info = (data as PostmanCollection | null)?.info;
+  if (typeof info !== 'object' || info === null || Array.isArray(data)) return false;
+  return /schema\.(get)?postman\.com/i.test(info.schema ?? '') || !!info._postman_id;
 }
 
 // ---------------------------------------------------------------------------
@@ -161,82 +94,59 @@ export function isPostmanCollection(data: unknown): data is PostmanCollection {
  *
  * Strategy:
  *  - Top-level folders → Action Groups
- *  - Nested subfolders → flattened with "Parent / Child" naming
+ *  - Nested subfolders → flattened into their top-level folder's group (with a warning)
  *  - Root-level requests (not in any folder) → "Ungrouped Requests" Action Group
- *  - Common protocol+host across requests → bucket baseUrl
+ *  - Most common origin across requests → bucket baseUrl
  *  - Postman variables → bucket variables
  *  - Auth types mapped where supported; unsupported types produce warnings
  */
 export function convertPostmanCollection(data: PostmanCollection): ConversionResult {
   const warnings: string[] = [];
   const now = new Date().toISOString();
+  const baseUrl = extractCommonBaseUrl(data.item);
 
-  // 1. Extract all requests with their folder paths for base URL detection
-  const allRequests: { url: PostmanUrl | string | undefined; item: PostmanItem }[] = [];
-  collectAllRequests(data.item, allRequests);
-
-  // 2. Determine common base URL
-  const baseUrl = extractCommonBaseUrl(allRequests);
-
-  // 3. Convert collection-level variables
-  const variables = convertVariables(data.variable || []);
-
-  // 4. Convert collection-level auth
-  const collectionAuth = convertAuth(data.auth, warnings, 'Collection');
-
-  // 5. Convert items → Action Groups
-  const actionGroups: ActionGroup[] = [];
-  const ungroupedSteps: Step[] = [];
-  let groupOrder = 0;
-
+  const groups: Pick<ActionGroup, 'name' | 'description' | 'steps'>[] = [];
+  const ungrouped: Step[] = [];
   for (const item of data.item) {
     if (isFolder(item)) {
-      // Top-level folder → Action Group
-      const steps = flattenFolderToSteps(item, baseUrl, warnings, now);
-      if (steps.length > 0) {
-        actionGroups.push({
-          id: uuidv4(),
-          name: item.name || `Action Group ${groupOrder + 1}`,
-          description: typeof item.description === 'string' ? item.description : '',
-          order: groupOrder,
-          steps: deduplicateStepNames(steps),
-          createdAt: now,
-          updatedAt: now,
-        });
-        groupOrder++;
-      }
+      groups.push({
+        name: item.name || 'Folder',
+        description: typeof item.description === 'string' ? item.description : '',
+        steps: flattenFolderToSteps(item, baseUrl, warnings, now),
+      });
     } else if (item.request) {
-      // Root-level request → collect for ungrouped
-      ungroupedSteps.push(convertRequestToStep(item, baseUrl, warnings, ungroupedSteps.length, now));
+      ungrouped.push(convertRequestToStep(item, baseUrl, warnings, now));
     }
   }
+  groups.push({
+    name: 'Ungrouped Requests',
+    description: 'Requests that were not inside any Postman folder',
+    steps: ungrouped,
+  });
 
-  // Add ungrouped requests as a catch-all Action Group
-  if (ungroupedSteps.length > 0) {
-    actionGroups.push({
-      id: uuidv4(),
-      name: 'Ungrouped Requests',
-      description: 'Requests that were not inside any Postman folder',
-      order: groupOrder,
-      steps: deduplicateStepNames(ungroupedSteps),
-      createdAt: now,
-      updatedAt: now,
-    });
-  }
-
-  // 6. Log warning if test scripts were present
   if (hasEventScripts(data)) {
-    warnings.push('Postman test/pre-request scripts were detected but not imported. You can manually recreate assertions in the step editor.');
+    warnings.push(
+      'Postman test/pre-request scripts were detected but not imported. You can manually recreate assertions in the step editor.',
+    );
   }
 
-  // 7. Assemble the bucket
   const bucket: TestBucket = {
-    id: uuidv4(),
+    id: randomUUID(),
     name: data.info.name || 'Postman Import',
     baseUrl,
-    auth: collectionAuth,
-    variables,
-    actionGroups,
+    auth: convertAuth(data.auth, warnings, 'Collection'),
+    variables: toKeyValues(data.variable),
+    actionGroups: groups
+      .filter((g) => g.steps.length > 0)
+      .map((g, order) => ({
+        ...g,
+        id: randomUUID(),
+        order,
+        // Orders follow the collection's request order, including flattened subfolders.
+        steps: deduplicateStepNames(g.steps).map((step, i) => ({ ...step, order: i })),
+        createdAt: now,
+        updatedAt: now,
+      })),
     createdAt: now,
     updatedAt: now,
   };
@@ -253,48 +163,31 @@ function isFolder(item: PostmanItem): boolean {
   return Array.isArray(item.item) && item.item.length > 0;
 }
 
-/** Recursively collects all request items for base URL scanning. */
-function collectAllRequests(
-  items: PostmanItem[],
-  out: { url: PostmanUrl | string | undefined; item: PostmanItem }[],
-): void {
-  for (const item of items) {
-    if (item.request) {
-      out.push({ url: item.request.url, item });
-    }
-    if (item.item) {
-      collectAllRequests(item.item, out);
-    }
-  }
+/** Postman {key, value, disabled} lists (headers, query, variables) → Fortest key-value pairs. */
+function toKeyValues(list: PostmanKV[] = []): KeyValuePair[] {
+  return list
+    .filter((kv) => kv.key)
+    .map((kv) => ({
+      id: randomUUID(),
+      key: kv.key,
+      value: kv.value ?? '',
+      enabled: !kv.disabled,
+      description: kv.description,
+    }));
 }
 
-/** Extracts a common base URL from all requests in the collection. */
-function extractCommonBaseUrl(
-  requests: { url: PostmanUrl | string | undefined }[],
-): string {
-  const hostCounts = new Map<string, number>();
-
-  for (const { url } of requests) {
-    const parsed = resolveUrl(url);
-    if (parsed.host) {
-      const key = originOf(parsed);
-      hostCounts.set(key, (hostCounts.get(key) || 0) + 1);
+/** The most frequently used origin across all requests, nested ones included. */
+function extractCommonBaseUrl(items: PostmanItem[]): string {
+  const counts = new Map<string, number>();
+  const visit = (list: PostmanItem[]): void => {
+    for (const item of list) {
+      const resolved = resolveUrl(item.request?.url);
+      if (resolved.host) counts.set(originOf(resolved), (counts.get(originOf(resolved)) ?? 0) + 1);
+      visit(item.item ?? []);
     }
-  }
-
-  if (hostCounts.size === 0) return '';
-
-  // Pick the most frequently occurring host
-  let bestHost = '';
-  let bestCount = 0;
-  for (const [host, count] of hostCounts) {
-    if (count > bestCount) {
-      bestHost = host;
-      bestCount = count;
-    }
-  }
-
-  return bestHost;
+  };
+  visit(items);
+  return [...counts].sort((a, b) => b[1] - a[1])[0]?.[0] ?? '';
 }
 
 interface ResolvedUrl {
@@ -302,27 +195,23 @@ interface ResolvedUrl {
   host: string;
   port: string;
   path: string;
-  query: PostmanQueryParam[];
+  query: PostmanKV[];
 }
 
 /** Normalizes a Postman URL (string or object) into its components. */
 function resolveUrl(url: PostmanUrl | string | undefined): ResolvedUrl {
-  const empty: ResolvedUrl = { protocol: 'https', host: '', port: '', path: '/', query: [] };
-
-  if (!url) return empty;
-
-  if (typeof url === 'string') {
-    return parseUrlString(url);
-  }
+  if (!url) return { protocol: 'https', host: '', port: '', path: '/', query: [] };
+  if (typeof url === 'string') return parseUrlString(url);
 
   // Object form. A host like {{baseUrl}} usually carries its own scheme, so don't prepend one.
   const host = Array.isArray(url.host) ? url.host.join('.') : '';
-  const protocol = url.protocol || (host.startsWith('{{') ? '' : 'https');
-  const port = url.port || '';
-  const path = Array.isArray(url.path) ? '/' + url.path.join('/') : '/';
-  const query = url.query || [];
-
-  return { protocol, host, port, path, query };
+  return {
+    protocol: url.protocol || (host.startsWith('{{') ? '' : 'https'),
+    host,
+    port: url.port || '',
+    path: Array.isArray(url.path) ? '/' + url.path.join('/') : '/',
+    query: url.query || [],
+  };
 }
 
 /** Origin of a resolved URL, e.g. `https://api.test:8080`, or `{{baseUrl}}` when the scheme lives in a variable. */
@@ -339,8 +228,12 @@ function parseUrlString(raw: string): ResolvedUrl {
   // Swap {{variables}} for plain placeholders while parsing: `new URL` lowercases hostnames
   // and rejects braces, so names like {{Base_URL}} wouldn't survive otherwise.
   const names: string[] = [];
-  const sanitized = raw.replace(/\{\{([^}]+)\}\}/g, (_m, name: string) => `pmvar${names.push(name) - 1}x`);
-  const restore = (str: string) => str.replace(/pmvar(\d+)x/g, (_m, i: string) => `{{${names[Number(i)]}}}`);
+  const sanitized = raw.replace(
+    /\{\{([^}]+)\}\}/g,
+    (_m, name: string) => `pmvar${names.push(name) - 1}x`,
+  );
+  const restore = (str: string) =>
+    str.replace(/pmvar(\d+)x/g, (_m, i: string) => `{{${names[Number(i)]}}}`);
 
   try {
     let urlObj: URL;
@@ -374,47 +267,13 @@ function parseUrlString(raw: string): ResolvedUrl {
   return result;
 }
 
-/** Extracts the step path relative to the base URL. */
-function extractStepPath(url: PostmanUrl | string | undefined, baseUrl: string): string {
-  const resolved = resolveUrl(url);
-  const fullHost = originOf(resolved);
-
-  if (baseUrl && fullHost === baseUrl) {
-    // Same host as base — use relative path
-    return resolved.path || '/';
-  }
-
-  if (baseUrl && !resolved.host) {
-    // No host in URL — already relative
-    return resolved.path || '/';
-  }
-
-  if (!baseUrl) {
-    // No common base URL — use full raw URL
-    if (typeof url === 'string') return url;
-    if (url?.raw) return url.raw;
-    return resolved.path || '/';
-  }
-
-  // Different host — store full URL so it still works at execution time
-  if (resolved.host) {
-    return `${fullHost}${resolved.path}`;
-  }
-
-  return resolved.path || '/';
-}
-
-/** Extracts query parameters from a Postman URL and merges them into params. */
-function extractQueryParams(url: PostmanUrl | string | undefined): KeyValuePair[] {
-  return resolveUrl(url).query
-    .filter((q) => q.key)
-    .map((q) => ({
-      id: uuidv4(),
-      key: q.key,
-      value: q.value || '',
-      enabled: !q.disabled,
-      description: q.description,
-    }));
+/**
+ * The step path: relative to the bucket baseUrl when the request shares its origin (or has none),
+ * otherwise the full URL so it still works at execution time. Query params go to step params.
+ */
+function extractStepPath(resolved: ResolvedUrl, baseUrl: string): string {
+  if (!resolved.host || originOf(resolved) === baseUrl) return resolved.path || '/';
+  return originOf(resolved) + resolved.path;
 }
 
 // --- Auth Conversion ---
@@ -424,206 +283,110 @@ function convertAuth(
   warnings: string[],
   context: string,
 ): AuthConfig {
-  if (!auth || auth.type === 'noauth' || !auth.type) {
-    return { type: 'none' };
-  }
+  const type = auth?.type?.toLowerCase();
+  if (!auth || !type || type === 'noauth') return { type: 'none' };
 
-  const type = auth.type.toLowerCase();
+  // v2.1 stores params as [{key, value}], v2.0 as {key: value}.
+  const raw = auth[type];
+  const params = new Map<string, string>(
+    Array.isArray(raw)
+      ? raw.map((p: PostmanKV) => [p.key, p.value ?? ''])
+      : Object.entries(raw ?? {}).map(([k, v]) => [k, typeof v === 'string' ? v : '']),
+  );
+  const get = (key: string) => params.get(key) ?? '';
 
-  if (type === 'bearer') {
-    const params = normalizeAuthParams(auth.bearer);
-    const token = params.get('token') || '';
-    return { type: 'bearer', bearer: { token } };
-  }
-
-  if (type === 'basic') {
-    const params = normalizeAuthParams(auth.basic);
-    return {
-      type: 'basic',
-      basic: {
-        username: params.get('username') || '',
-        password: params.get('password') || '',
-      },
-    };
-  }
-
+  if (type === 'bearer') return { type: 'bearer', bearer: { token: get('token') } };
+  if (type === 'basic')
+    return { type: 'basic', basic: { username: get('username'), password: get('password') } };
   if (type === 'apikey') {
-    const params = normalizeAuthParams(auth.apikey);
-    const addTo = params.get('in') === 'query' ? 'query' as const : 'header' as const;
     return {
       type: 'api-key',
       apiKey: {
-        key: params.get('key') || '',
-        value: params.get('value') || '',
-        addTo,
+        key: get('key'),
+        value: get('value'),
+        addTo: get('in') === 'query' ? 'query' : 'header',
       },
     };
   }
 
-  // Unsupported auth type
-  warnings.push(`${context}: Unsupported auth type "${auth.type}" was skipped. You may need to configure auth manually.`);
+  warnings.push(
+    `${context}: Unsupported auth type "${auth.type}" was skipped. You may need to configure auth manually.`,
+  );
   return { type: 'none' };
-}
-
-/** Postman v2.1 stores auth params as arrays of {key,value}; v2.0 as objects. */
-function normalizeAuthParams(
-  params: PostmanAuthParam[] | Record<string, string> | undefined,
-): Map<string, string> {
-  const map = new Map<string, string>();
-
-  if (!params) return map;
-
-  if (Array.isArray(params)) {
-    for (const p of params) {
-      if (p.key) map.set(p.key, p.value || '');
-    }
-  } else if (typeof params === 'object') {
-    for (const [k, v] of Object.entries(params)) {
-      map.set(k, typeof v === 'string' ? v : '');
-    }
-  }
-
-  return map;
 }
 
 // --- Body Conversion ---
 
 function convertBody(body: PostmanBody | undefined): RequestBody {
-  if (!body || !body.mode) {
-    return { type: 'none', content: '' };
-  }
-
-  switch (body.mode) {
+  switch (body?.mode) {
     case 'raw': {
       const lang = body.options?.raw?.language?.toLowerCase();
-      if (lang === 'json') {
-        return { type: 'json', content: body.raw || '' };
-      }
-      if (lang === 'xml') {
-        return { type: 'xml', content: body.raw || '' };
-      }
-      return { type: 'raw', content: body.raw || '' };
+      return { type: lang === 'json' || lang === 'xml' ? lang : 'raw', content: body.raw || '' };
     }
-
-    case 'formdata': {
-      // Serialize form-data entries as JSON key-value array for Fortest
-      const entries = (body.formdata || [])
-        .filter((f) => !f.disabled)
-        .map((f) => ({ key: f.key, value: f.value || '' }));
-      return { type: 'form-data', content: JSON.stringify(entries) };
-    }
-
+    case 'formdata':
     case 'urlencoded': {
-      const entries = (body.urlencoded || [])
+      // Stored as a JSON array of key-value pairs (see parseFormPairs)
+      const entries = (body[body.mode] || [])
         .filter((f) => !f.disabled)
         .map((f) => ({ key: f.key, value: f.value || '' }));
-      return { type: 'x-www-form-urlencoded', content: JSON.stringify(entries) };
+      return {
+        type: body.mode === 'formdata' ? 'form-data' : 'x-www-form-urlencoded',
+        content: JSON.stringify(entries),
+      };
     }
-
     default:
       return { type: 'none', content: '' };
   }
 }
 
-// --- Header Conversion ---
-
-function convertHeaders(headers: PostmanHeader[] | undefined): KeyValuePair[] {
-  if (!headers) return [];
-
-  return headers
-    .filter((h) => h.key)
-    .map((h) => ({
-      id: uuidv4(),
-      key: h.key,
-      value: h.value || '',
-      enabled: !h.disabled,
-      description: h.description,
-    }));
-}
-
-// --- Variable Conversion ---
-
-function convertVariables(variables: PostmanVariable[]): BucketVariable[] {
-  return variables
-    .filter((v) => v.key)
-    .map((v) => ({
-      id: uuidv4(),
-      key: v.key,
-      value: v.value || '',
-      enabled: !v.disabled,
-    }));
-}
-
 // --- Folder → Steps Flattening ---
 
-/**
- * Recursively flattens a folder and all its subfolders into a flat list of Steps.
- * Nested subfolder items are prefixed with the folder path for naming clarity.
- */
+/** Recursively flattens a folder and all its subfolders into a flat list of Steps. */
 function flattenFolderToSteps(
   folder: PostmanItem,
   baseUrl: string,
   warnings: string[],
   now: string,
-  parentPrefix?: string,
+  parentPath = '',
 ): Step[] {
-  const steps: Step[] = [];
-  const items = folder.item || [];
-
-  for (const item of items) {
+  return (folder.item ?? []).flatMap((item) => {
     if (isFolder(item)) {
-      // Nested subfolder — flatten with parent/child naming
-      const prefix = parentPrefix
-        ? `${parentPrefix} / ${item.name || 'Folder'}`
-        : item.name || 'Folder';
-
-      warnings.push(`Nested folder "${prefix}" was flattened into its parent Action Group.`);
-
-      const nestedSteps = flattenFolderToSteps(item, baseUrl, warnings, now, prefix);
-      steps.push(...nestedSteps);
-    } else if (item.request) {
-      steps.push(convertRequestToStep(item, baseUrl, warnings, steps.length, now));
+      const path = parentPath ? `${parentPath} / ${item.name || 'Folder'}` : item.name || 'Folder';
+      warnings.push(`Nested folder "${path}" was flattened into its parent Action Group.`);
+      return flattenFolderToSteps(item, baseUrl, warnings, now, path);
     }
-  }
-
-  return steps;
+    return item.request ? [convertRequestToStep(item, baseUrl, warnings, now)] : [];
+  });
 }
 
 // --- Request → Step Conversion ---
 
+/** `order` is assigned by the caller once the group's steps are collected. */
 function convertRequestToStep(
   item: PostmanItem,
   baseUrl: string,
   warnings: string[],
-  order: number,
   now: string,
 ): Step {
   const req = item.request!;
-  const method = (req.method || 'GET').toUpperCase();
-
-  // Validate method against supported methods
-  const supportedMethods = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS'];
-  const finalMethod = supportedMethods.includes(method) ? method : 'GET';
-  if (!supportedMethods.includes(method)) {
-    warnings.push(`Request "${item.name}": Unsupported HTTP method "${method}" was defaulted to GET.`);
+  const method = HttpMethodSchema.safeParse((req.method || 'GET').toUpperCase());
+  if (!method.success) {
+    warnings.push(
+      `Request "${item.name}": Unsupported HTTP method "${req.method}" was defaulted to GET.`,
+    );
   }
-
-  const path = extractStepPath(req.url, baseUrl);
-  const headers = convertHeaders(req.header);
-  const params = extractQueryParams(req.url);
-  const body = convertBody(req.body);
-  const auth = convertAuth(req.auth, warnings, `Step "${item.name || 'Unnamed'}"`);
+  const url = resolveUrl(req.url);
 
   return {
-    id: uuidv4(),
-    name: item.name || `Step ${order + 1}`,
-    order,
-    method: finalMethod as any,
-    path,
-    headers,
-    params,
-    body,
-    auth,
+    id: randomUUID(),
+    name: item.name || 'Request',
+    order: 0,
+    method: method.success ? method.data : 'GET',
+    path: extractStepPath(url, baseUrl),
+    headers: toKeyValues(req.header),
+    params: toKeyValues(url.query),
+    body: convertBody(req.body),
+    auth: convertAuth(req.auth, warnings, `Step "${item.name || 'Unnamed'}"`),
     extractions: [],
     assertions: [],
     createdAt: now,
@@ -643,32 +406,13 @@ function deduplicateStepNames(steps: Step[]): Step[] {
   return steps.map((step) => {
     const lowerName = step.name.trim().toLowerCase();
     const count = nameCount.get(lowerName) || 0;
-
-    if (count > 0) {
-      const newName = `${step.name} (${count + 1})`;
-      nameCount.set(lowerName, count + 1);
-      return { ...step, name: newName };
-    }
-
-    nameCount.set(lowerName, 1);
-    return step;
+    nameCount.set(lowerName, count + 1);
+    return count > 0 ? { ...step, name: `${step.name} (${count + 1})` } : step;
   });
 }
 
 // --- Event Script Detection ---
 
-function hasEventScripts(collection: PostmanCollection): boolean {
-  // Check collection-level events
-  if (collection.event && collection.event.length > 0) return true;
-
-  // Check item-level events recursively
-  return itemsHaveEvents(collection.item);
-}
-
-function itemsHaveEvents(items: PostmanItem[]): boolean {
-  for (const item of items) {
-    if (item.event && (item.event as unknown[]).length > 0) return true;
-    if (item.item && itemsHaveEvents(item.item)) return true;
-  }
-  return false;
+function hasEventScripts(node: { event?: unknown[]; item?: PostmanItem[] }): boolean {
+  return !!node.event?.length || (node.item ?? []).some(hasEventScripts);
 }

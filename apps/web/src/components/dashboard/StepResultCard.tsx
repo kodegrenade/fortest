@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import type { StepResult } from '@fortest/types';
 import { CheckCircleIcon, XIcon, AlertCircleIcon } from '@/components/common/Icons';
+import { formatBytes, isExecuting, prettyJson, tint } from '@/utils/results';
 
 interface StepResultCardProps {
   result: StepResult;
@@ -11,45 +12,24 @@ type TabType = 'overview' | 'headers' | 'requestBody' | 'body' | 'assertions' | 
 export function StepResultCard({ result }: StepResultCardProps) {
   const [activeTab, setActiveTab] = useState<TabType>('overview');
 
-  const getStatusColor = (status: number, statusText?: string) => {
-    if (statusText === 'Executing...') return 'var(--accent-primary)';
-    if (status >= 200 && status < 300) return 'var(--status-2xx)';
-    if (status >= 300 && status < 400) return 'var(--status-3xx)';
-    return 'var(--status-5xx)';
-  };
+  const statusColor = isExecuting(result)
+    ? 'var(--accent-primary)'
+    : result.status >= 200 && result.status < 300
+    ? 'var(--status-2xx)'
+    : result.status >= 300 && result.status < 400
+    ? 'var(--status-3xx)'
+    : 'var(--status-5xx)';
 
-  const formattedBody = () => {
-    if (!result.responseBody) return 'Empty response body';
-    if (result.contentType?.includes('application/json')) {
-      try {
-        return JSON.stringify(JSON.parse(result.responseBody), null, 2);
-      } catch {
-        return result.responseBody;
-      }
-    }
-    return result.responseBody;
-  };
+  const tabs = [
+    { id: 'overview', label: 'Overview' },
+    ...(result.requestBody ? [{ id: 'requestBody', label: 'Request Body' }] : []),
+    { id: 'headers', label: 'Headers' },
+    { id: 'body', label: 'Response Body' },
+    { id: 'assertions', label: `Assertions (${result.assertions.length})` },
+    { id: 'extractions', label: `Extractions (${Object.keys(result.extractedData).length})` },
+  ] as { id: TabType; label: string }[];
 
-  const formattedRequestBody = () => {
-    if (!result.requestBody) return 'Empty request body';
-    const trimmed = result.requestBody.trim();
-    if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
-      try {
-        return JSON.stringify(JSON.parse(result.requestBody), null, 2);
-      } catch {
-        return result.requestBody;
-      }
-    }
-    return result.requestBody;
-  };
-
-  const formatSize = (bytes: number) => {
-    if (bytes === 0) return '0 B';
-    const k = 1024;
-    const sizes = ['B', 'KB', 'MB'];
-    const i = Math.floor(Math.log(bytes) / Math.log(k));
-    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
-  };
+  const tile = { padding: '12px', border: '1px solid var(--border-primary)', borderRadius: 'var(--radius-md)', backgroundColor: 'var(--bg-primary)' };
 
   return (
     <div className="config-panel" style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
@@ -65,15 +45,15 @@ export function StepResultCard({ result }: StepResultCardProps) {
           <span
             className="badge"
             style={{
-              backgroundColor: `color-mix(in srgb, ${getStatusColor(result.status, result.statusText)} 8%, transparent)`,
-              color: getStatusColor(result.status, result.statusText),
-              border: `1px solid color-mix(in srgb, ${getStatusColor(result.status, result.statusText)} 19%, transparent)`,
+              backgroundColor: tint(statusColor, 8),
+              color: statusColor,
+              border: `1px solid ${tint(statusColor, 19)}`,
               fontSize: '12px',
               padding: '4px 8px',
             }}
           >
-            {result.statusText === 'Executing...' 
-              ? 'Executing...' 
+            {isExecuting(result)
+              ? 'Executing...'
               : result.status > 0 
                 ? `${result.status} ${result.statusText}` 
                 : result.statusText || 'Failed'}
@@ -86,41 +66,27 @@ export function StepResultCard({ result }: StepResultCardProps) {
 
       {/* Detail Tabs */}
       <div style={{ display: 'flex', borderBottom: '1px solid var(--border-secondary)', padding: '0 8px', backgroundColor: 'var(--bg-secondary)', overflowX: 'auto' }}>
-        {(() => {
-          const tabs: { id: TabType; label: string }[] = [
-            { id: 'overview', label: 'Overview' },
-          ];
-          if (result.requestBody) {
-            tabs.push({ id: 'requestBody', label: 'Request Body' });
-          }
-          tabs.push(
-            { id: 'headers', label: 'Headers' },
-            { id: 'body', label: 'Response Body' },
-            { id: 'assertions', label: `Assertions (${result.assertions?.length || 0})` },
-            { id: 'extractions', label: `Extractions (${Object.keys(result.extractedData || {}).length})` }
+        {tabs.map((tab) => {
+          const isActive = activeTab === tab.id;
+          return (
+            <button
+              key={tab.id}
+              onClick={() => setActiveTab(tab.id)}
+              style={{
+                padding: '10px 14px',
+                fontSize: '12px',
+                fontWeight: 500,
+                color: isActive ? 'var(--accent-primary)' : 'var(--text-secondary)',
+                borderBottom: isActive ? '2px solid var(--accent-primary)' : '2px solid transparent',
+                cursor: 'pointer',
+                transition: 'all var(--transition-fast)',
+                whiteSpace: 'nowrap',
+              }}
+            >
+              {tab.label}
+            </button>
           );
-          return tabs.map((tab) => {
-            const isActive = activeTab === tab.id;
-            return (
-              <button
-                key={tab.id}
-                onClick={() => setActiveTab(tab.id)}
-                style={{
-                  padding: '10px 14px',
-                  fontSize: '12px',
-                  fontWeight: 500,
-                  color: isActive ? 'var(--accent-primary)' : 'var(--text-secondary)',
-                  borderBottom: isActive ? '2px solid var(--accent-primary)' : '2px solid transparent',
-                  cursor: 'pointer',
-                  transition: 'all var(--transition-fast)',
-                  whiteSpace: 'nowrap',
-                }}
-              >
-                {tab.label}
-              </button>
-            );
-          });
-        })()}
+        })}
       </div>
 
       {/* Tab Content */}
@@ -129,7 +95,7 @@ export function StepResultCard({ result }: StepResultCardProps) {
         {activeTab === 'overview' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
             {result.error && (
-              <div style={{ display: 'flex', gap: '8px', padding: '12px', backgroundColor: 'hsla(0, 70%, 58%, 0.1)', border: '1px solid hsla(0, 70%, 58%, 0.2)', borderRadius: 'var(--radius-md)', color: 'var(--method-delete)', fontSize: '13px' }}>
+              <div style={{ display: 'flex', gap: '8px', padding: '12px', backgroundColor: tint('var(--status-5xx)', 10), border: `1px solid ${tint('var(--status-5xx)', 20)}`, borderRadius: 'var(--radius-md)', color: 'var(--method-delete)', fontSize: '13px' }}>
                 <AlertCircleIcon size={16} style={{ flexShrink: 0, marginTop: '2px' }} />
                 <div>
                   <div style={{ fontWeight: 600, marginBottom: '2px' }}>Execution Error</div>
@@ -164,15 +130,16 @@ export function StepResultCard({ result }: StepResultCardProps) {
             )}
 
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '12px' }}>
-              <div style={{ padding: '12px', border: '1px solid var(--border-primary)', borderRadius: 'var(--radius-md)', backgroundColor: 'var(--bg-primary)' }}>
-                <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', marginBottom: '4px' }}>Duration</div>
-                <div style={{ fontSize: '16px', fontWeight: 600, color: 'var(--text-primary)' }}>{result.responseTime} ms</div>
-              </div>
-              <div style={{ padding: '12px', border: '1px solid var(--border-primary)', borderRadius: 'var(--radius-md)', backgroundColor: 'var(--bg-primary)' }}>
-                <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', marginBottom: '4px' }}>Response Size</div>
-                <div style={{ fontSize: '16px', fontWeight: 600, color: 'var(--text-primary)' }}>{formatSize(result.responseSize)}</div>
-              </div>
-              <div style={{ padding: '12px', border: '1px solid var(--border-primary)', borderRadius: 'var(--radius-md)', backgroundColor: 'var(--bg-primary)' }}>
+              {[
+                ['Duration', `${result.responseTime} ms`],
+                ['Response Size', formatBytes(result.responseSize)],
+              ].map(([label, value]) => (
+                <div key={label} style={tile}>
+                  <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', marginBottom: '4px' }}>{label}</div>
+                  <div style={{ fontSize: '16px', fontWeight: 600, color: 'var(--text-primary)' }}>{value}</div>
+                </div>
+              ))}
+              <div style={tile}>
                 <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', marginBottom: '4px' }}>Content Type</div>
                 <div style={{ fontSize: '13px', fontWeight: 500, color: 'var(--text-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={result.contentType}>
                   {result.contentType || 'unknown'}
@@ -203,7 +170,7 @@ export function StepResultCard({ result }: StepResultCardProps) {
           </div>
         )}
 
-        {activeTab === 'requestBody' && (
+        {(activeTab === 'requestBody' || activeTab === 'body') && (
           <div style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
             <textarea
               readOnly
@@ -219,28 +186,11 @@ export function StepResultCard({ result }: StepResultCardProps) {
                 backgroundColor: 'var(--bg-primary)',
                 cursor: 'text',
               }}
-              value={formattedRequestBody()}
-            />
-          </div>
-        )}
-
-        {activeTab === 'body' && (
-          <div style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
-            <textarea
-              readOnly
-              className="input"
-              style={{
-                fontFamily: 'var(--font-mono)',
-                width: '100%',
-                flex: 1,
-                minHeight: '220px',
-                fontSize: '12px',
-                resize: 'none',
-                lineHeight: '1.5',
-                backgroundColor: 'var(--bg-primary)',
-                cursor: 'text',
-              }}
-              value={formattedBody()}
+              value={
+                activeTab === 'body'
+                  ? result.responseBody ? prettyJson(result.responseBody) : 'Empty response body'
+                  : result.requestBody ? prettyJson(result.requestBody) : 'Empty request body'
+              }
             />
           </div>
         )}
@@ -262,7 +212,7 @@ export function StepResultCard({ result }: StepResultCardProps) {
                     padding: '12px',
                     border: '1px solid var(--border-primary)',
                     borderRadius: 'var(--radius-md)',
-                    backgroundColor: assert.passed ? 'hsla(145, 65%, 50%, 0.05)' : 'hsla(0, 70%, 58%, 0.05)',
+                    backgroundColor: tint(assert.passed ? 'var(--status-2xx)' : 'var(--status-5xx)', 5),
                   }}
                 >
                   <span style={{ color: assert.passed ? 'var(--status-2xx)' : 'var(--status-5xx)', marginTop: '2px' }}>

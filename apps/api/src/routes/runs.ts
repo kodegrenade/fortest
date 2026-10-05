@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { z } from 'zod';
-import { v4 as uuidv4 } from 'uuid';
+import { randomUUID } from 'node:crypto';
 import { runGroup, getRunById, getGroupRuns } from '../services/runnerService';
 import { getBucketById } from '../services/bucketService';
 import { broadcastToRun } from '../services/websocketService';
@@ -32,17 +32,7 @@ router.get('/', async (req, res) => {
     return;
   }
 
-  try {
-    const runsList = await getGroupRuns(groupId);
-    res.json(runsList);
-  } catch (err: any) {
-    const error: ApiError = {
-      error: 'Internal Server Error',
-      message: err.message || 'Failed to list execution runs.',
-      statusCode: 500,
-    };
-    res.status(500).json(error);
-  }
+  res.json(await getGroupRuns(groupId));
 });
 
 /**
@@ -64,7 +54,7 @@ router.post('/', async (req, res) => {
     return;
   }
 
-  const runId = uuidv4();
+  const runId = randomUUID();
 
   // Fire execution in background
   runGroup(bucketId, groupId, runId, config, (event) => {

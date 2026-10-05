@@ -1,269 +1,91 @@
 import { Router, type Router as ExpressRouter } from 'express';
 import { z } from 'zod';
 import * as yaml from 'yaml';
-import { v4 as uuidv4 } from 'uuid';
-import { TestBucketSchema, type TestBucket, type ActionGroup, type Step, type BucketVariable } from '@fortest/types';
+import { TestBucketSchema, type ApiError } from '@fortest/types';
 import * as bucketService from '../services/bucketService';
 import { isPostmanCollection, convertPostmanCollection } from '../services/postmanConverter';
 
+// Express 5 forwards rejected promises to the error handler (ZodError -> 400), so no try/catch here.
 const router: ExpressRouter = Router();
+
+const notFound: ApiError = { error: 'Not Found', message: 'Bucket not found', statusCode: 404 };
 
 const CreateBucketSchema = z.object({
   name: z.string().min(1),
   baseUrl: z.string().optional(),
 });
 
-router.get('/', async (_req, res, next) => {
-  try {
-    const buckets = await bucketService.getAllBuckets();
-    res.json(buckets);
-  } catch (err) {
-    next(err);
-  }
+const ImportSchema = z.object({
+  content: z.string().min(1),
+  format: z.enum(['json', 'yaml']),
 });
 
-router.get('/:id', async (req, res, next) => {
-  try {
-    const bucket = await bucketService.getBucketById(req.params.id!);
-    if (!bucket) {
-      res.status(404).json({ error: 'Not Found', message: 'Bucket not found', statusCode: 404 });
-      return;
-    }
-    res.json(bucket);
-  } catch (err) {
-    next(err);
-  }
+router.get('/', async (_req, res) => {
+  res.json(await bucketService.getAllBuckets());
 });
 
-router.post('/', async (req, res, next) => {
-  try {
-    const parsed = CreateBucketSchema.safeParse(req.body);
-    if (!parsed.success) {
-      res.status(400).json({ error: 'Validation Error', message: 'Invalid payload', statusCode: 400 });
-      return;
-    }
-    const bucket = await bucketService.createBucket(parsed.data.name, parsed.data.baseUrl);
-    res.status(201).json(bucket);
-  } catch (err) {
-    next(err);
-  }
+router.get('/:id', async (req, res) => {
+  const bucket = await bucketService.getBucketById(req.params.id!);
+  if (!bucket) return void res.status(404).json(notFound);
+  res.json(bucket);
 });
 
-router.put('/:id', async (req, res, next) => {
-  try {
-    const bucket = await bucketService.updateBucket(req.params.id!, req.body);
-    if (!bucket) {
-      res.status(404).json({ error: 'Not Found', message: 'Bucket not found', statusCode: 404 });
-      return;
-    }
-    res.json(bucket);
-  } catch (err) {
-    next(err);
-  }
+router.post('/', async (req, res) => {
+  const { name, baseUrl } = CreateBucketSchema.parse(req.body);
+  res.status(201).json(await bucketService.createBucket(name, baseUrl));
 });
 
-router.delete('/:id', async (req, res, next) => {
-  try {
-    const success = await bucketService.deleteBucket(req.params.id!);
-    if (!success) {
-      res.status(404).json({ error: 'Not Found', message: 'Bucket not found', statusCode: 404 });
-      return;
-    }
-    res.status(204).send();
-  } catch (err) {
-    next(err);
-  }
+router.put('/:id', async (req, res) => {
+  const bucket = await bucketService.updateBucket(req.params.id!, req.body);
+  if (!bucket) return void res.status(404).json(notFound);
+  res.json(bucket);
 });
 
-router.get('/:id/export', async (req, res, next) => {
-  try {
-    const bucket = await bucketService.getBucketById(req.params.id!);
-    if (!bucket) {
-      res.status(404).json({ error: 'Not Found', message: 'Bucket not found', statusCode: 404 });
-      return;
-    }
-
-    const format = req.query.format === 'yaml' ? 'yaml' : 'json';
-    const formatted = format === 'yaml' ? yaml.stringify(bucket) : JSON.stringify(bucket, null, 2);
-
-    const ext = format === 'yaml' ? 'yaml' : 'json';
-    const filename = `${bucket.name.toLowerCase().replace(/[^a-z0-9]+/g, '-')}-export.${ext}`;
-    const contentType = format === 'yaml' ? 'application/yaml' : 'application/json';
-
-    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
-    res.setHeader('Content-Type', contentType);
-    res.send(formatted);
-  } catch (err) {
-    next(err);
-  }
+router.delete('/:id', async (req, res) => {
+  if (!(await bucketService.deleteBucket(req.params.id!)))
+    return void res.status(404).json(notFound);
+  res.status(204).send();
 });
 
-router.post('/import', async (req, res, next) => {
+router.get('/:id/export', async (req, res) => {
+  const bucket = await bucketService.getBucketById(req.params.id!);
+  if (!bucket) return void res.status(404).json(notFound);
+
+  const isYaml = req.query.format === 'yaml';
+  const filename = `${bucket.name.toLowerCase().replace(/[^a-z0-9]+/g, '-')}-export.${isYaml ? 'yaml' : 'json'}`;
+  res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+  res.setHeader('Content-Type', isYaml ? 'application/yaml' : 'application/json');
+  res.send(isYaml ? yaml.stringify(bucket) : JSON.stringify(bucket, null, 2));
+});
+
+router.post('/import', async (req, res) => {
+  const { content, format } = ImportSchema.parse(req.body);
+
+  let parsed: unknown;
   try {
-    const { content, format } = req.body;
-    if (!content || !format) {
-      res.status(400).json({ error: 'Validation Error', message: 'Missing content or format', statusCode: 400 });
-      return;
-    }
-
-    let parsed: any;
-    try {
-      if (format === 'yaml') {
-        parsed = yaml.parse(content);
-      } else {
-        parsed = JSON.parse(content);
-      }
-    } catch (err: any) {
-      res.status(400).json({ error: 'Parsing Error', message: err.message || 'Invalid file format content', statusCode: 400 });
-      return;
-    }
-
-    // --- Postman Collection detection ---
-    if (!Array.isArray(parsed) && isPostmanCollection(parsed)) {
-      const { bucket, warnings } = convertPostmanCollection(parsed);
-      const validatedBucket = TestBucketSchema.safeParse(bucket);
-      if (!validatedBucket.success) {
-        res.status(400).json({
-          error: 'Conversion Error',
-          message: 'Postman collection could not be converted to a valid Test Bucket',
-          details: validatedBucket.error.errors,
-          statusCode: 400,
-        });
-        return;
-      }
-      await bucketService.saveBucket(validatedBucket.data);
-      res.status(201).json({
-        ...validatedBucket.data,
-        _importMeta: { source: 'postman', warnings },
-      });
-      return;
-    }
-
-    // --- Standard Fortest bucket import ---
-    const isArray = Array.isArray(parsed);
-    const rawBuckets = isArray ? parsed : [parsed];
-    const importedBuckets: TestBucket[] = [];
-
-    for (const raw of rawBuckets) {
-      if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) {
-        res.status(400).json({ error: 'Validation Error', message: 'Imported item must be a JSON/YAML object', statusCode: 400 });
-        return;
-      }
-
-      const allowedKeys = ['id', 'name', 'baseUrl', 'auth', 'variables', 'actionGroups', 'createdAt', 'updatedAt'];
-      const rawKeys = Object.keys(raw);
-      const hasInvalidKeys = rawKeys.some(key => !allowedKeys.includes(key));
-      const hasCoreKeys = rawKeys.some(key => ['name', 'baseUrl', 'variables', 'actionGroups'].includes(key));
-
-      if (hasInvalidKeys || !hasCoreKeys) {
-        res.status(400).json({
-          error: 'Validation Error',
-          message: 'Invalid bucket file structure. The file must contain valid Test Bucket properties (such as name, baseUrl, variables, actionGroups) and no unrecognized fields.',
-          statusCode: 400
-        });
-        return;
-      }
-
-      const now = new Date().toISOString();
-      const variables: BucketVariable[] = (raw.variables || []).map((v: any) => ({
-        id: uuidv4(),
-        key: v.key || '',
-        value: v.value || '',
-        enabled: v.enabled !== undefined ? v.enabled : true,
-      }));
-
-      const actionGroups: ActionGroup[] = (raw.actionGroups || []).map((g: any, gIdx: number) => {
-        const steps: Step[] = (g.steps || []).map((s: any, sIdx: number) => ({
-          id: uuidv4(),
-          name: s.name || `Step ${sIdx + 1}`,
-          order: s.order !== undefined ? s.order : sIdx,
-          method: s.method || 'GET',
-          path: s.path || '/',
-          headers: (s.headers || []).map((h: any) => ({
-            id: uuidv4(),
-            key: h.key || '',
-            value: h.value || '',
-            enabled: h.enabled !== undefined ? h.enabled : true,
-            description: h.description,
-          })),
-          params: (s.params || []).map((p: any) => ({
-            id: uuidv4(),
-            key: p.key || '',
-            value: p.value || '',
-            enabled: p.enabled !== undefined ? p.enabled : true,
-            description: p.description,
-          })),
-          body: s.body || { type: 'none', content: '' },
-          auth: s.auth || { type: 'none' },
-          extractions: (s.extractions || []).map((e: any) => ({
-            id: uuidv4(),
-            variableName: e.variableName || '',
-            source: e.source || 'body',
-            selector: e.selector || '',
-          })),
-          assertions: (s.assertions || []).map((a: any) => ({
-            id: uuidv4(),
-            target: a.target || 'status',
-            selector: a.selector || '',
-            operator: a.operator || 'equals',
-            expected: a.expected || '',
-          })),
-          createdAt: s.createdAt || now,
-          updatedAt: s.updatedAt || now,
-        }));
-
-        return {
-          id: uuidv4(),
-          name: g.name || `Action Group ${gIdx + 1}`,
-          description: g.description || '',
-          order: g.order !== undefined ? g.order : gIdx,
-          steps,
-          dataStore: g.dataStore ? {
-            id: uuidv4(),
-            name: g.dataStore.name || 'Data Store',
-            records: g.dataStore.records || [],
-            createdAt: g.dataStore.createdAt || now,
-          } : undefined,
-          createdAt: g.createdAt || now,
-          updatedAt: g.updatedAt || now,
-        };
-      });
-
-      const newBucket: TestBucket = {
-        id: uuidv4(),
-        name: raw.name || 'Imported Bucket',
-        baseUrl: raw.baseUrl || '',
-        auth: raw.auth || { type: 'none' },
-        variables,
-        actionGroups,
-        createdAt: raw.createdAt || now,
-        updatedAt: now,
-      };
-
-      // Zod validation check
-      const parsedBucket = TestBucketSchema.safeParse(newBucket);
-      if (!parsedBucket.success) {
-        res.status(400).json({
-          error: 'Validation Error',
-          message: 'Imported bucket schema validation failed',
-          details: parsedBucket.error.errors,
-          statusCode: 400
-        });
-        return;
-      }
-
-      importedBuckets.push(parsedBucket.data);
-    }
-
-    // Save all validated buckets
-    for (const b of importedBuckets) {
-      await bucketService.saveBucket(b);
-    }
-
-    res.status(201).json(isArray ? importedBuckets : importedBuckets[0]);
+    parsed = format === 'yaml' ? yaml.parse(content) : JSON.parse(content);
   } catch (err) {
-    next(err);
+    const message = err instanceof Error ? err.message : 'Invalid file format content';
+    return void res
+      .status(400)
+      .json({ error: 'Parsing Error', message, statusCode: 400 } satisfies ApiError);
   }
+
+  // --- Postman Collection ---
+  if (!Array.isArray(parsed) && isPostmanCollection(parsed)) {
+    const { bucket, warnings } = convertPostmanCollection(parsed);
+    const validated = TestBucketSchema.parse(bucket);
+    await bucketService.saveBucket(validated);
+    return void res
+      .status(201)
+      .json({ ...validated, _importMeta: { source: 'postman', warnings } });
+  }
+
+  // --- Fortest bucket file (one bucket or an array of them) ---
+  const isArray = Array.isArray(parsed);
+  const buckets = (isArray ? (parsed as unknown[]) : [parsed]).map(bucketService.prepareImport); // validates all before saving any
+  for (const bucket of buckets) await bucketService.saveBucket(bucket);
+  res.status(201).json(isArray ? buckets : buckets[0]);
 });
 
 export default router;

@@ -1,3 +1,2 @@
-export { interpolate, extractVariableKeys } from './variables';
-export { formatJson, formatXml, formatBytes, formatDuration } from './formatters';
+export { interpolate } from './variables';
 export { parseFormPairs } from './formBody';

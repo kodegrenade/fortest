@@ -1,0 +1,64 @@
+{
+  "name": "Sample Gateway API",
+  "baseUrl": "https://api.example.com",
+  "variables": [
+    {
+      "key": "env",
+      "value": "staging",
+      "enabled": true
+    }
+  ],
+  "actionGroups": [
+    {
+      "name": "User Authentication",
+      "description": "Authenticate user and fetch profile info",
+      "order": 0,
+      "steps": [
+        {
+          "name": "Login Request",
+          "order": 0,
+          "method": "POST",
+          "path": "/auth/login",
+          "headers": [
+            { "key": "Content-Type", "value": "application/json", "enabled": true }
+          ],
+          "body": {
+            "type": "json",
+            "content": "{\n  \"email\": \"user@example.com\",\n  \"password\": \"securepassword\"\n}"
+          },
+          "extractions": [
+            {
+              "variableName": "accessToken",
+              "source": "body",
+              "selector": "data.token"
+            }
+          ],
+          "assertions": [
+            {
+              "target": "status",
+              "operator": "equals",
+              "expected": "200"
+            }
+          ]
+        },
+        {
+          "name": "Get Profile",
+          "order": 1,
+          "method": "GET",
+          "path": "/users/me",
+          "headers": [
+            { "key": "Authorization", "value": "Bearer {{steps.Login Request.accessToken}}", "enabled": true }
+          ],
+          "extractions": [],
+          "assertions": [
+            {
+              "target": "status",
+              "operator": "equals",
+              "expected": "200"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

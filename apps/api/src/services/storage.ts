@@ -2,225 +2,120 @@ import type { StorageMode } from '@fortest/types';
 import { getRedisClient, isRedisAvailable } from './redis';
 
 // --- Storage Adapter Interface ---
+// The Redis commands Fortest uses, with an in-memory stand-in for running without Redis.
 
 export interface StorageAdapter {
   get(key: string): Promise<string | null>;
   set(key: string, value: string): Promise<void>;
   del(key: string): Promise<void>;
-  keys(pattern: string): Promise<string[]>;
   sadd(key: string, member: string): Promise<void>;
   smembers(key: string): Promise<string[]>;
   srem(key: string, member: string): Promise<void>;
   zadd(key: string, score: number, member: string): Promise<void>;
   zrevrange(key: string, start: number, stop: number): Promise<string[]>;
-  zrem(key: string, member: string): Promise<void>;
   zcard(key: string): Promise<number>;
   zremrangebyrank(key: string, start: number, stop: number): Promise<void>;
 }
 
 // --- Redis Implementation ---
 
-export class RedisStorageAdapter implements StorageAdapter {
-  async get(key: string): Promise<string | null> {
-    const client = getRedisClient();
-    if (!client) throw new Error('Redis client unavailable');
-    return client.get(key);
-  }
+function redis() {
+  const client = getRedisClient();
+  if (!client) throw new Error('Redis client unavailable');
+  return client;
+}
 
-  async set(key: string, value: string): Promise<void> {
-    const client = getRedisClient();
-    if (!client) throw new Error('Redis client unavailable');
-    await client.set(key, value);
-  }
-
-  async del(key: string): Promise<void> {
-    const client = getRedisClient();
-    if (!client) throw new Error('Redis client unavailable');
-    await client.del(key);
-  }
-
-  async keys(pattern: string): Promise<string[]> {
-    const client = getRedisClient();
-    if (!client) throw new Error('Redis client unavailable');
-    return client.keys(pattern);
-  }
-
-  async sadd(key: string, member: string): Promise<void> {
-    const client = getRedisClient();
-    if (!client) throw new Error('Redis client unavailable');
-    await client.sAdd(key, member);
-  }
-
-  async smembers(key: string): Promise<string[]> {
-    const client = getRedisClient();
-    if (!client) throw new Error('Redis client unavailable');
-    return client.sMembers(key);
-  }
-
-  async srem(key: string, member: string): Promise<void> {
-    const client = getRedisClient();
-    if (!client) throw new Error('Redis client unavailable');
-    await client.sRem(key, member);
-  }
-
-  async zadd(key: string, score: number, member: string): Promise<void> {
-    const client = getRedisClient();
-    if (!client) throw new Error('Redis client unavailable');
-    await client.zAdd(key, [{ score, value: member }]);
-  }
-
-  async zrevrange(key: string, start: number, stop: number): Promise<string[]> {
-    const client = getRedisClient();
-    if (!client) throw new Error('Redis client unavailable');
-    return client.zRange(key, start, stop, { REV: true });
-  }
-
-  async zrem(key: string, member: string): Promise<void> {
-    const client = getRedisClient();
-    if (!client) throw new Error('Redis client unavailable');
-    await client.zRem(key, member);
-  }
-
-  async zcard(key: string): Promise<number> {
-    const client = getRedisClient();
-    if (!client) throw new Error('Redis client unavailable');
-    return client.zCard(key);
-  }
-
-  async zremrangebyrank(key: string, start: number, stop: number): Promise<void> {
-    const client = getRedisClient();
-    if (!client) throw new Error('Redis client unavailable');
-    await client.zRemRangeByRank(key, start, stop);
-  }
+class RedisStorageAdapter implements StorageAdapter {
+  get = (key: string) => redis().get(key);
+  set = async (key: string, value: string) => void (await redis().set(key, value));
+  del = async (key: string) => void (await redis().del(key));
+  sadd = async (key: string, member: string) => void (await redis().sAdd(key, member));
+  smembers = (key: string) => redis().sMembers(key);
+  srem = async (key: string, member: string) => void (await redis().sRem(key, member));
+  zadd = async (key: string, score: number, member: string) =>
+    void (await redis().zAdd(key, [{ score, value: member }]));
+  zrevrange = (key: string, start: number, stop: number) =>
+    redis().zRange(key, start, stop, { REV: true });
+  zcard = (key: string) => redis().zCard(key);
+  zremrangebyrank = async (key: string, start: number, stop: number) =>
+    void (await redis().zRemRangeByRank(key, start, stop));
 }
 
 // --- In-Memory Implementation ---
 
-interface SortedSetEntry {
-  score: number;
-  member: string;
-}
-
-export class MemoryStorageAdapter implements StorageAdapter {
+class MemoryStorageAdapter implements StorageAdapter {
   private store = new Map<string, string>();
   private sets = new Map<string, Set<string>>();
-  private sortedSets = new Map<string, SortedSetEntry[]>();
+  private sortedSets = new Map<string, Map<string, number>>(); // member -> score
 
-  async get(key: string): Promise<string | null> {
+  // Members ordered by ascending score, like Redis.
+  private ranked(key: string): string[] {
+    return [...(this.sortedSets.get(key) ?? [])]
+      .sort((a, b) => a[1] - b[1])
+      .map(([member]) => member);
+  }
+
+  async get(key: string) {
     return this.store.get(key) ?? null;
   }
 
-  async set(key: string, value: string): Promise<void> {
+  async set(key: string, value: string) {
     this.store.set(key, value);
   }
 
-  async del(key: string): Promise<void> {
+  async del(key: string) {
     this.store.delete(key);
     this.sets.delete(key);
     this.sortedSets.delete(key);
   }
 
-  async keys(pattern: string): Promise<string[]> {
-    const regex = new RegExp(
-      '^' + pattern.replace(/[.+^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*').replace(/\?/g, '.') + '$',
-    );
-    const allKeys = [
-      ...this.store.keys(),
-      ...this.sets.keys(),
-      ...this.sortedSets.keys(),
-    ];
-    // Deduplicate keys that may exist in multiple maps
-    return [...new Set(allKeys)].filter((k) => regex.test(k));
+  async sadd(key: string, member: string) {
+    this.sets.set(key, (this.sets.get(key) ?? new Set()).add(member));
   }
 
-  async sadd(key: string, member: string): Promise<void> {
-    let set = this.sets.get(key);
-    if (!set) {
-      set = new Set();
-      this.sets.set(key, set);
-    }
-    set.add(member);
+  async smembers(key: string) {
+    return [...(this.sets.get(key) ?? [])];
   }
 
-  async smembers(key: string): Promise<string[]> {
-    const set = this.sets.get(key);
-    return set ? [...set] : [];
-  }
-
-  async srem(key: string, member: string): Promise<void> {
+  async srem(key: string, member: string) {
     this.sets.get(key)?.delete(member);
   }
 
-  async zadd(key: string, score: number, member: string): Promise<void> {
-    let entries = this.sortedSets.get(key);
-    if (!entries) {
-      entries = [];
-      this.sortedSets.set(key, entries);
-    }
-    // Update existing or add new
-    const idx = entries.findIndex((e) => e.member === member);
-    if (idx !== -1) {
-      entries[idx] = { score, member };
-    } else {
-      entries.push({ score, member });
-    }
-    // Keep sorted by score ascending (Redis default)
-    entries.sort((a, b) => a.score - b.score);
+  async zadd(key: string, score: number, member: string) {
+    this.sortedSets.set(key, (this.sortedSets.get(key) ?? new Map()).set(member, score));
   }
 
-  async zrevrange(key: string, start: number, stop: number): Promise<string[]> {
-    const entries = this.sortedSets.get(key);
-    if (!entries) return [];
-    // Reverse order (highest score first), then slice
-    const reversed = [...entries].reverse();
-    const end = stop === -1 ? reversed.length : stop + 1;
-    return reversed.slice(start, end).map((e) => e.member);
+  async zrevrange(key: string, start: number, stop: number) {
+    return this.ranked(key)
+      .reverse()
+      .slice(start, stop === -1 ? undefined : stop + 1);
   }
 
-  async zrem(key: string, member: string): Promise<void> {
-    const entries = this.sortedSets.get(key);
-    if (!entries) return;
-    const idx = entries.findIndex((e) => e.member === member);
-    if (idx !== -1) entries.splice(idx, 1);
+  async zcard(key: string) {
+    return this.sortedSets.get(key)?.size ?? 0;
   }
 
-  async zcard(key: string): Promise<number> {
-    return this.sortedSets.get(key)?.length ?? 0;
-  }
-
-  async zremrangebyrank(key: string, start: number, stop: number): Promise<void> {
-    const entries = this.sortedSets.get(key);
-    if (!entries) return;
-    const end = stop === -1 ? entries.length : stop + 1;
-    entries.splice(start, end - start);
+  async zremrangebyrank(key: string, start: number, stop: number) {
+    const set = this.sortedSets.get(key);
+    for (const member of this.ranked(key).slice(start, stop === -1 ? undefined : stop + 1))
+      set?.delete(member);
   }
 }
 
 // --- Factory & Mode ---
 
 let activeAdapter: StorageAdapter | null = null;
-let storageMode: StorageMode = 'memory';
 
 export function createStorageAdapter(): StorageAdapter {
-  if (isRedisAvailable()) {
-    storageMode = 'redis';
-    activeAdapter = new RedisStorageAdapter();
-    console.log('[Storage] Using Redis adapter');
-  } else {
-    storageMode = 'memory';
-    activeAdapter = new MemoryStorageAdapter();
-    console.log('[Storage] Using in-memory adapter');
-  }
+  activeAdapter = isRedisAvailable() ? new RedisStorageAdapter() : new MemoryStorageAdapter();
+  console.log(`[Storage] Using ${getStorageMode()} adapter`);
   return activeAdapter;
 }
 
 export function getStorageAdapter(): StorageAdapter {
-  if (!activeAdapter) {
-    return createStorageAdapter();
-  }
-  return activeAdapter;
+  return activeAdapter ?? createStorageAdapter();
 }
 
 export function getStorageMode(): StorageMode {
-  return storageMode;
+  return activeAdapter instanceof RedisStorageAdapter ? 'redis' : 'memory';
 }

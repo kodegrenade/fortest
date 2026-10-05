@@ -1,6 +1,21 @@
 import { useEffect } from 'react';
 import { useExecutionStore } from '@/stores/executionStore';
 import { ClockIcon, CheckCircleIcon, XIcon } from '@/components/common/Icons';
+import { toneBadge } from '@/utils/results';
+
+const dateFormat = new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' });
+const relativeFormat = new Intl.RelativeTimeFormat(undefined, { numeric: 'auto' });
+
+function relativeTime(iso: string): string {
+  const seconds = (new Date(iso).getTime() - Date.now()) / 1000;
+  if (Math.abs(seconds) < 60) return 'Just now';
+  for (const [unit, size] of [['day', 86400], ['hour', 3600], ['minute', 60]] as const) {
+    if (Math.abs(seconds) >= size) return relativeFormat.format(Math.round(seconds / size), unit);
+  }
+  return '';
+}
+
+const COLUMNS = ['Execution Date', 'Status', 'Configuration', 'Duration', 'Avg Latency', 'Success Rate'];
 
 interface HistoryListProps {
   groupId: string;
@@ -12,41 +27,6 @@ export function HistoryList({ groupId }: HistoryListProps) {
   useEffect(() => {
     loadRuns(groupId);
   }, [groupId, loadRuns]);
-
-  const formatDate = (isoString: string) => {
-    try {
-      const date = new Date(isoString);
-      return date.toLocaleString(undefined, {
-        month: 'short',
-        day: 'numeric',
-        hour: '2-digit',
-        minute: '2-digit',
-        second: '2-digit',
-      });
-    } catch {
-      return isoString;
-    }
-  };
-
-  const getRelativeTime = (isoString: string) => {
-    try {
-      const ms = Date.now() - new Date(isoString).getTime();
-      const sec = Math.round(ms / 1000);
-      const min = Math.round(sec / 60);
-      const hr = Math.round(min / 60);
-      const day = Math.round(hr / 24);
-
-      if (sec < 60) return 'Just now';
-      if (min === 1) return '1 minute ago';
-      if (min < 60) return `${min} minutes ago`;
-      if (hr === 1) return '1 hour ago';
-      if (hr < 24) return `${hr} hours ago`;
-      if (day === 1) return 'Yesterday';
-      return `${day} days ago`;
-    } catch {
-      return '';
-    }
-  };
 
   if (pastRunsLoading && pastRuns.length === 0) {
     return (
@@ -90,12 +70,9 @@ export function HistoryList({ groupId }: HistoryListProps) {
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px', textAlign: 'left' }}>
           <thead>
             <tr style={{ backgroundColor: 'var(--bg-primary)', borderBottom: '1px solid var(--border-primary)', color: 'var(--text-secondary)', fontWeight: 600 }}>
-              <th style={{ padding: '12px 16px' }}>Execution Date</th>
-              <th style={{ padding: '12px 16px' }}>Status</th>
-              <th style={{ padding: '12px 16px' }}>Configuration</th>
-              <th style={{ padding: '12px 16px' }}>Duration</th>
-              <th style={{ padding: '12px 16px' }}>Avg Latency</th>
-              <th style={{ padding: '12px 16px' }}>Success Rate</th>
+              {COLUMNS.map((c) => (
+                <th key={c} style={{ padding: '12px 16px' }}>{c}</th>
+              ))}
               <th style={{ padding: '12px 16px', textAlign: 'right' }}>Actions</th>
             </tr>
           </thead>
@@ -105,14 +82,8 @@ export function HistoryList({ groupId }: HistoryListProps) {
               const metrics = run.metrics;
               const hasMetrics = !!metrics;
 
-              let errorRate = 0;
-              let successRate = 100;
-              if (hasMetrics && metrics.totalRequests > 0) {
-                errorRate = Math.round(metrics.errorRate || 0);
-                successRate = 100 - errorRate;
-              }
-
-              const isSuccess = run.status === 'completed' && errorRate === 0;
+              const successRate = 100 - Math.round(metrics?.errorRate ?? 0);
+              const isSuccess = run.status === 'completed' && successRate === 100;
 
               return (
                 <tr
@@ -126,10 +97,10 @@ export function HistoryList({ groupId }: HistoryListProps) {
                   <td style={{ padding: '14px 16px' }}>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
                       <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>
-                        {formatDate(run.createdAt || run.startedAt || '')}
+                        {dateFormat.format(new Date(run.createdAt))}
                       </span>
                       <span style={{ fontSize: '11px', color: 'var(--text-tertiary)' }}>
-                        {getRelativeTime(run.createdAt || run.startedAt || '')}
+                        {relativeTime(run.createdAt)}
                       </span>
                     </div>
                   </td>
@@ -144,16 +115,8 @@ export function HistoryList({ groupId }: HistoryListProps) {
                         textTransform: 'uppercase',
                         padding: '2px 8px',
                         borderRadius: '4px',
-                        backgroundColor: isSuccess
-                          ? 'hsla(145, 65%, 50%, 0.12)'
-                          : run.status === 'running'
-                          ? 'var(--accent-subtle)'
-                          : 'hsla(0, 70%, 58%, 0.12)',
-                        color: isSuccess
-                          ? 'var(--status-2xx)'
-                          : run.status === 'running'
-                          ? 'var(--accent-primary)'
-                          : 'var(--status-5xx)',
+                        ...toneBadge(isSuccess ? 'passed' : run.status === 'running' ? 'running' : 'failed', 12),
+                        border: 'none',
                       }}
                     >
                       {isSuccess ? (

@@ -12,7 +12,11 @@ export async function connectRedis(): Promise<boolean> {
       // Before the first successful connect: a few quick retries, then give up so the server
       // starts on in-memory storage. After that: keep reconnecting through Redis blips.
       reconnectStrategy: (retries) =>
-        wasReady ? Math.min(retries * 200, 5000) : retries < 3 ? 500 : new Error('Redis unreachable'),
+        wasReady
+          ? Math.min(retries * 200, 5000)
+          : retries < 3
+            ? 500
+            : new Error('Redis unreachable'),
     },
   });
 

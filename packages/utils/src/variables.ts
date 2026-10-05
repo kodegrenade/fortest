@@ -25,19 +25,3 @@ export function interpolate(
 
   return { resolved, unresolvedKeys };
 }
-
-/**
- * Extract all variable keys referenced in a template string.
- */
-export function extractVariableKeys(template: string): string[] {
-  const keys: string[] = [];
-  const regex = /\{\{\s*([^{}]+?)\s*\}\}/g;
-  let match: RegExpExecArray | null;
-  while ((match = regex.exec(template)) !== null) {
-    const key = match[1]?.trim();
-    if (key) {
-      keys.push(key);
-    }
-  }
-  return [...new Set(keys)];
-}

@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
-import { useExecutionStore, BackgroundJob } from '@/stores/executionStore';
+import { useExecutionStore, type BackgroundJob } from '@/stores/executionStore';
+import { TONE_COLOR, toneBadge } from '@/utils/results';
 import { useBucketStore } from '@/stores/bucketStore';
 import { PlayIcon, CheckCircleIcon, XIcon, AlertCircleIcon, LayersIcon } from '../common/Icons';
 
@@ -31,17 +32,6 @@ export function BackgroundJobsIndicator() {
     setActiveGroup(job.actionGroupId);
     await viewHistoricalRun(job.runId);
     setIsOpen(false);
-  };
-
-  const getStatusColor = (status: BackgroundJob['status']) => {
-    switch (status) {
-      case 'running':
-        return 'var(--accent-primary)';
-      case 'completed':
-        return 'var(--status-2xx)';
-      case 'failed':
-        return 'var(--status-5xx)';
-    }
   };
 
   return (
@@ -95,7 +85,7 @@ export function BackgroundJobsIndicator() {
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: '1px solid var(--border-primary)', paddingBottom: '8px' }}>
             <span style={{ fontWeight: 600, fontSize: '13px', color: 'var(--text-primary)' }}>Background Runs</span>
             {activeJobs.length > 0 && (
-              <span className="badge" style={{ backgroundColor: 'color-mix(in srgb, var(--accent-primary) 8%, transparent)', color: 'var(--accent-primary)', fontSize: '10px' }}>
+              <span className="badge" style={{ ...toneBadge('running', 8), border: 'none', fontSize: '10px' }}>
                 {activeJobs.length} active
               </span>
             )}
@@ -145,7 +135,7 @@ export function BackgroundJobsIndicator() {
                           width: '6px',
                           height: '6px',
                           borderRadius: '50%',
-                          backgroundColor: getStatusColor(job.status),
+                          backgroundColor: TONE_COLOR[job.status === 'completed' ? 'passed' : job.status],
                         }}
                       />
                       <button

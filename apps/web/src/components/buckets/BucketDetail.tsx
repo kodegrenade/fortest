@@ -11,8 +11,8 @@ import {
   SaveIcon,
   ClipboardIcon,
 } from '@/components/common/Icons';
-import { ConfirmDialog } from '@/components/common/ConfirmDialog';
-import { ActionGroupDialog } from '@/components/common/ActionGroupDialog';
+import { AuthFields } from '@/components/common/AuthFields';
+import { ActionGroupDialogs, type GroupDialogState } from '@/components/common/ActionGroupDialogs';
 import { PasteVariablesDialog } from '@/components/common/PasteVariablesDialog';
 import type { BucketVariable, AuthConfig } from '@fortest/types';
 import { useToastStore } from '@/stores/toastStore';
@@ -23,16 +23,12 @@ export function BucketDetail() {
     activeBucketId,
     updateBucket,
     setActiveGroup,
-    addActionGroup,
-    updateActionGroup,
-    deleteActionGroup,
   } = useBucketStore();
   const { addToast } = useToastStore();
 
   const bucket = buckets.find((b) => b.id === activeBucketId);
 
   // Local state for form fields to allow editing before saving
-  const [name, setName] = useState('');
   const [baseUrl, setBaseUrl] = useState('');
   const [auth, setAuth] = useState<AuthConfig>({ type: 'none' });
   const [variables, setVariables] = useState<BucketVariable[]>([]);
@@ -43,31 +39,13 @@ export function BucketDetail() {
   const configKey = bucket && JSON.stringify([bucket.id, bucket.name, bucket.baseUrl, bucket.auth, bucket.variables]);
   useEffect(() => {
     if (bucket) {
-      setName(bucket.name);
       setBaseUrl(bucket.baseUrl || '');
       setAuth(bucket.auth || { type: 'none' });
       setVariables(bucket.variables || []);
     }
   }, [configKey]);
 
-  // Dialog states for action group management
-  const [dialogState, setDialogState] = useState<{
-    type: 'createGroup' | 'renameGroup' | 'deleteGroup' | 'pasteVariables' | null;
-    groupId?: string;
-    initialValue?: string;
-    initialDescription?: string;
-  }>({ type: null });
-
-  useEffect(() => {
-    if (dialogState.type !== null) {
-      document.body.style.overflow = 'hidden';
-    } else {
-      document.body.style.overflow = '';
-    }
-    return () => {
-      document.body.style.overflow = '';
-    };
-  }, [dialogState.type]);
+  const [dialogState, setDialogState] = useState<{ type: GroupDialogState['type'] | 'pasteVariables' } & Omit<GroupDialogState, 'type'>>({ type: null });
 
   if (!bucket) return null;
 
@@ -77,7 +55,6 @@ export function BucketDetail() {
     const validVariables = variables.filter((v) => v.key.trim() !== '');
     try {
       await updateBucket(bucket.id, {
-        name,
         baseUrl,
         auth,
         variables: validVariables,
@@ -125,51 +102,6 @@ export function BucketDetail() {
     setDialogState({ type: null });
   };
 
-  const handleCreateGroupConfirm = async (groupName: string, description: string) => {
-    try {
-      await addActionGroup(bucket.id, groupName, description);
-      addToast(`Action group "${groupName}" created successfully`, 'success');
-    } catch (err: any) {
-      addToast(err.message || 'Failed to create action group', 'error');
-    }
-    setDialogState({ type: null });
-  };
-
-  const handleRenameGroupConfirm = async (groupName: string, description: string) => {
-    if (dialogState.groupId) {
-      try {
-        await updateActionGroup(bucket.id, dialogState.groupId, { name: groupName, description });
-        addToast(`Action group updated successfully`, 'success');
-      } catch (err: any) {
-        addToast(err.message || 'Failed to update action group', 'error');
-      }
-    }
-    setDialogState({ type: null });
-  };
-
-  const handleDeleteGroupConfirm = async () => {
-    if (dialogState.groupId) {
-      try {
-        await deleteActionGroup(bucket.id, dialogState.groupId);
-        addToast('Action group deleted successfully', 'success');
-      } catch (err: any) {
-        addToast(err.message || 'Failed to delete action group', 'error');
-      }
-    }
-    setDialogState({ type: null });
-  };
-
-  const handleExport = (format: 'json' | 'yaml') => {
-    const url = `/api/buckets/${bucket.id}/export?format=${format}`;
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = '';
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    addToast(`Exporting "${bucket.name}" as ${format.toUpperCase()}...`, 'info');
-  };
-
   return (
     <div className="bucket-detail">
       
@@ -184,22 +116,24 @@ export function BucketDetail() {
           </p>
         </div>
         <div style={{ display: 'flex', gap: '8px' }}>
-          <button
-            type="button"
+          <a
             className="btn btn--secondary"
-            onClick={() => handleExport('yaml')}
+            href={`/api/buckets/${bucket.id}/export?format=yaml`}
+            download
+            onClick={() => addToast(`Exporting "${bucket.name}" as YAML...`, 'info')}
             style={{ padding: '6px 12px', fontSize: '12.5px', display: 'flex', alignItems: 'center', gap: '6px' }}
           >
             <SaveIcon size={14} /> Export YAML
-          </button>
-          <button
-            type="button"
+          </a>
+          <a
             className="btn btn--secondary"
-            onClick={() => handleExport('json')}
+            href={`/api/buckets/${bucket.id}/export?format=json`}
+            download
+            onClick={() => addToast(`Exporting "${bucket.name}" as JSON...`, 'info')}
             style={{ padding: '6px 12px', fontSize: '12.5px', display: 'flex', alignItems: 'center', gap: '6px' }}
           >
             <SaveIcon size={14} /> Export JSON
-          </button>
+          </a>
         </div>
       </div>
 
@@ -236,119 +170,7 @@ export function BucketDetail() {
             <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
               <label style={{ fontWeight: 500, fontSize: '12px', color: 'var(--text-secondary)' }}>Global Authentication</label>
               
-              <div style={{ width: '200px' }}>
-                <select
-                  className="input"
-                  value={auth.type}
-                  onChange={(e) => setAuth({ ...auth, type: e.target.value as any })}
-                >
-                  <option value="none">No Auth</option>
-                  <option value="bearer">Bearer Token</option>
-                  <option value="basic">Basic Auth</option>
-                  <option value="api-key">API Key</option>
-                </select>
-              </div>
-
-              {auth.type === 'bearer' && (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', paddingLeft: '16px', borderLeft: '2px solid var(--border-primary)' }}>
-                  <label style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>Token</label>
-                  <input
-                    type="text"
-                    className="input"
-                    placeholder="Token value (or {{variable}})"
-                    value={auth.bearer?.token || ''}
-                    onChange={(e) => setAuth({ ...auth, bearer: { token: e.target.value } })}
-                  />
-                </div>
-              )}
-
-              {auth.type === 'basic' && (
-                <div style={{ display: 'flex', gap: '12px', paddingLeft: '16px', borderLeft: '2px solid var(--border-primary)' }}>
-                  <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                    <label style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>Username</label>
-                    <input
-                      type="text"
-                      className="input"
-                      placeholder="Username"
-                      value={auth.basic?.username || ''}
-                      onChange={(e) => setAuth({
-                        ...auth,
-                        basic: { username: e.target.value, password: auth.basic?.password || '' }
-                      })}
-                    />
-                  </div>
-                  <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                    <label style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>Password</label>
-                    <input
-                      type="password"
-                      className="input"
-                      placeholder="Password"
-                      value={auth.basic?.password || ''}
-                      onChange={(e) => setAuth({
-                        ...auth,
-                        basic: { username: auth.basic?.username || '', password: e.target.value }
-                      })}
-                    />
-                  </div>
-                </div>
-              )}
-
-              {auth.type === 'api-key' && (
-                <div style={{ display: 'flex', gap: '12px', paddingLeft: '16px', borderLeft: '2px solid var(--border-primary)' }}>
-                  <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                    <label style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>Key</label>
-                    <input
-                      type="text"
-                      className="input"
-                      placeholder="X-API-Key"
-                      value={auth.apiKey?.key || ''}
-                      onChange={(e) => setAuth({
-                        ...auth,
-                        apiKey: {
-                          key: e.target.value,
-                          value: auth.apiKey?.value || '',
-                          addTo: auth.apiKey?.addTo || 'header'
-                        }
-                      })}
-                    />
-                  </div>
-                  <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                    <label style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>Value</label>
-                    <input
-                      type="text"
-                      className="input"
-                      placeholder="Value"
-                      value={auth.apiKey?.value || ''}
-                      onChange={(e) => setAuth({
-                        ...auth,
-                        apiKey: {
-                          key: auth.apiKey?.key || '',
-                          value: e.target.value,
-                          addTo: auth.apiKey?.addTo || 'header'
-                        }
-                      })}
-                    />
-                  </div>
-                  <div style={{ width: '120px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                    <label style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>Add To</label>
-                    <select
-                      className="input"
-                      value={auth.apiKey?.addTo || 'header'}
-                      onChange={(e) => setAuth({
-                        ...auth,
-                        apiKey: {
-                          key: auth.apiKey?.key || '',
-                          value: auth.apiKey?.value || '',
-                          addTo: e.target.value as any
-                        }
-                      })}
-                    >
-                      <option value="header">Headers</option>
-                      <option value="query">Query Params</option>
-                    </select>
-                  </div>
-                </div>
-              )}
+              <AuthFields auth={auth} noneLabel="No Auth" tokenPlaceholder="Token value (or {{variable}})" onChange={setAuth} />
             </div>
 
             {/* Global Variables */}
@@ -513,46 +335,13 @@ export function BucketDetail() {
         )}
       </div>
 
-      {/* Dialogs */}
-      {dialogState.type === 'createGroup' && (
-        <ActionGroupDialog
-          isOpen={true}
-          title="Create Action Group"
-          submitText="Create"
-          onConfirm={handleCreateGroupConfirm}
-          onCancel={() => setDialogState({ type: null })}
-        />
-      )}
-
-      {dialogState.type === 'renameGroup' && (
-        <ActionGroupDialog
-          isOpen={true}
-          title="Edit Action Group"
-          submitText="Save"
-          initialName={dialogState.initialValue}
-          initialDescription={dialogState.initialDescription}
-          onConfirm={handleRenameGroupConfirm}
-          onCancel={() => setDialogState({ type: null })}
-        />
-      )}
-
-      {dialogState.type === 'deleteGroup' && (
-        <ConfirmDialog
-          isOpen={true}
-          title="Delete Action Group"
-          message="Are you sure you want to delete this action group? This will permanently delete all steps in this group."
-          confirmText="Delete"
-          isDanger={true}
-          onConfirm={handleDeleteGroupConfirm}
-          onCancel={() => setDialogState({ type: null })}
-        />
-      )}
-
-      {dialogState.type === 'pasteVariables' && (
-        <PasteVariablesDialog
-          isOpen={true}
-          onConfirm={handleBulkAddVariables}
-          onCancel={() => setDialogState({ type: null })}
+      {dialogState.type === 'pasteVariables' ? (
+        <PasteVariablesDialog onConfirm={handleBulkAddVariables} onCancel={() => setDialogState({ type: null })} />
+      ) : (
+        <ActionGroupDialogs
+          bucketId={bucket.id}
+          state={{ ...dialogState, type: dialogState.type }}
+          onClose={() => setDialogState({ type: null })}
         />
       )}
 

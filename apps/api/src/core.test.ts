@@ -17,10 +17,17 @@ import { extractValue } from './services/extractionService';
 import { evaluateAssertion } from './services/assertionService';
 import { isPostmanCollection, convertPostmanCollection } from './services/postmanConverter';
 import { computeMetrics, joinUrl, runGroup, getRunById } from './services/runnerService';
-import { saveBucket } from './services/bucketService';
+import { saveBucket, prepareImport } from './services/bucketService';
+import { readFileSync } from 'node:fs';
+import * as yaml from 'yaml';
 
 const vars = (o: Record<string, string>, disabled: string[] = []): BucketVariable[] =>
-  Object.entries(o).map(([key, value]) => ({ id: randomUUID(), key, value, enabled: !disabled.includes(key) }));
+  Object.entries(o).map(([key, value]) => ({
+    id: randomUUID(),
+    key,
+    value,
+    enabled: !disabled.includes(key),
+  }));
 
 const response = (body: unknown, extra: Partial<ProxyResponse> = {}): ProxyResponse => ({
   status: 200,
@@ -35,21 +42,36 @@ const response = (body: unknown, extra: Partial<ProxyResponse> = {}): ProxyRespo
 
 test('interpolate: resolves, trims, keeps unknown and disabled placeholders', () => {
   const v = vars({ host: 'api.test', 'steps.Login Step.token': 'abc', off: 'x' }, ['off']);
-  const { resolved, unresolvedKeys } = interpolate('https://{{host}}/{{ steps.Login Step.token }}/{{missing}}/{{off}}', v);
+  const { resolved, unresolvedKeys } = interpolate(
+    'https://{{host}}/{{ steps.Login Step.token }}/{{missing}}/{{off}}',
+    v,
+  );
   assert.equal(resolved, 'https://api.test/abc/{{missing}}/{{off}}');
   assert.deepEqual(unresolvedKeys, ['missing', 'off']);
 });
 
 test('parseFormPairs: JSON pairs, legacy query strings, malformed escapes', () => {
-  const pairs = parseFormPairs(JSON.stringify([{ id: 'k1', key: 'a', value: '1' }, { key: 'b', value: 2, enabled: false }]));
+  const pairs = parseFormPairs(
+    JSON.stringify([
+      { id: 'k1', key: 'a', value: '1' },
+      { key: 'b', value: 2, enabled: false },
+    ]),
+  );
   assert.deepEqual(
     pairs.map(({ key, value, enabled }) => [key, value, enabled]),
-    [['a', '1', true], ['b', '2', false]],
+    [
+      ['a', '1', true],
+      ['b', '2', false],
+    ],
   );
   assert.equal(pairs[0]!.id, 'k1');
   assert.deepEqual(
     parseFormPairs('q={{token}}&pct=100%&space=a+b').map((p) => [p.key, p.value]),
-    [['q', '{{token}}'], ['pct', '100%'], ['space', 'a b']],
+    [
+      ['q', '{{token}}'],
+      ['pct', '100%'],
+      ['space', 'a b'],
+    ],
   );
   assert.deepEqual(parseFormPairs(''), []);
 });
@@ -69,8 +91,12 @@ test('extractValue: body paths, arrays, headers, status, non-JSON bodies', () =>
 
 test('evaluateAssertion: every operator, including missing values and bad regexes', () => {
   const res = response({ user: { role: 'dev', age: 30, active: true, tags: ['a', 'b'] } });
-  const check = (target: Assertion['target'], selector: string, operator: Assertion['operator'], expected: string) =>
-    evaluateAssertion(res, { id: randomUUID(), target, selector, operator, expected }).passed;
+  const check = (
+    target: Assertion['target'],
+    selector: string,
+    operator: Assertion['operator'],
+    expected: string,
+  ) => evaluateAssertion(res, { id: randomUUID(), target, selector, operator, expected }).passed;
 
   assert.equal(check('status', '', 'equals', '200'), true);
   assert.equal(check('status', '', 'not_equals', '201'), true);
@@ -87,7 +113,13 @@ test('evaluateAssertion: every operator, including missing values and bad regexe
 
   assert.equal(check('body', 'user.missing', 'equals', 'undefined'), false);
   assert.equal(check('body', 'user.missing', 'greater_than', '0'), false);
-  const bad = evaluateAssertion(res, { id: randomUUID(), target: 'status', selector: '', operator: 'matches_regex', expected: '(' });
+  const bad = evaluateAssertion(res, {
+    id: randomUUID(),
+    target: 'status',
+    selector: '',
+    operator: 'matches_regex',
+    expected: '(',
+  });
   assert.equal(bad.passed, false);
   assert.match(bad.message, /Error during evaluation/);
 });
@@ -107,7 +139,10 @@ test('computeMetrics: failures, nearest-rank percentiles, throughput', () => {
     { total: m.totalRequests, ok: m.completed, failed: m.failed, errorRate: m.errorRate },
     { total: 5, ok: 2, failed: 3, errorRate: 60 },
   );
-  assert.deepEqual([m.minLatency, m.maxLatency, m.avgLatency, m.p50, m.p95, m.p99], [10, 50, 30, 30, 50, 50]);
+  assert.deepEqual(
+    [m.minLatency, m.maxLatency, m.avgLatency, m.p50, m.p95, m.p99],
+    [10, 50, 30, 30, 50, 50],
+  );
   assert.equal(m.throughputPerSec, 2.5);
   assert.equal(m.totalDataTransferred, 50);
   assert.equal(computeMetrics([], 0).p95, 0);
@@ -123,7 +158,10 @@ test('joinUrl: base + relative path, absolute paths win', () => {
 
 test('Postman import: realistic v2.1 collection maps to a valid, runnable bucket', () => {
   const collection = {
-    info: { name: 'Shop API', schema: 'https://schema.getpostman.com/json/collection/v2.1.0/collection.json' },
+    info: {
+      name: 'Shop API',
+      schema: 'https://schema.getpostman.com/json/collection/v2.1.0/collection.json',
+    },
     variable: [{ key: 'baseUrl', value: 'https://api.shop.test' }],
     auth: { type: 'bearer', bearer: [{ key: 'token', value: '{{token}}', type: 'string' }] },
     item: [
@@ -134,7 +172,12 @@ test('Postman import: realistic v2.1 collection maps to a valid, runnable bucket
             name: 'List users',
             request: {
               method: 'GET',
-              url: { raw: '{{baseUrl}}/users?page=2', host: ['{{baseUrl}}'], path: ['users'], query: [{ key: 'page', value: '2' }] },
+              url: {
+                raw: '{{baseUrl}}/users?page=2',
+                host: ['{{baseUrl}}'],
+                path: ['users'],
+                query: [{ key: 'page', value: '2' }],
+              },
             },
           },
           {
@@ -143,13 +186,35 @@ test('Postman import: realistic v2.1 collection maps to a valid, runnable bucket
             request: {
               method: 'POST',
               url: { raw: '{{baseUrl}}/users', host: ['{{baseUrl}}'], path: ['users'] },
-              body: { mode: 'urlencoded', urlencoded: [{ key: 'name', value: 'Ada' }, { key: 'x', value: '1', disabled: true }] },
+              auth: { type: 'apikey', apikey: { key: 'X-Key', value: '{{apiKey}}', in: 'query' } }, // v2.0 object form
+              body: {
+                mode: 'urlencoded',
+                urlencoded: [
+                  { key: 'name', value: 'Ada' },
+                  { key: 'x', value: '1', disabled: true },
+                ],
+              },
             },
           },
-          { name: 'Admin', item: [{ name: 'List users', request: { method: 'GET', url: '{{baseUrl}}/admin/users' } }] },
+          {
+            name: 'Admin',
+            item: [
+              {
+                name: 'List users',
+                request: {
+                  method: 'GET',
+                  url: '{{baseUrl}}/admin/users',
+                  auth: { type: 'oauth2' },
+                },
+              },
+            ],
+          },
         ],
       },
-      { name: 'Health', request: { method: 'GET', url: 'https://{{status_host}}/health?verbose=true' } },
+      {
+        name: 'Health',
+        request: { method: 'GET', url: 'https://{{status_host}}/health?verbose=true' },
+      },
     ],
   };
 
@@ -160,16 +225,37 @@ test('Postman import: realistic v2.1 collection maps to a valid, runnable bucket
   TestBucketSchema.parse(bucket); // the import route rejects anything that fails this
 
   assert.deepEqual(bucket.auth, { type: 'bearer', bearer: { token: '{{token}}' } });
-  assert.deepEqual(bucket.actionGroups.map((g) => g.name), ['Users', 'Ungrouped Requests']);
-  assert.ok(warnings.some((w) => /nested/i.test(w)), 'warns about flattened nested folders');
-  assert.ok(warnings.some((w) => /script/i.test(w)), 'warns about skipped scripts');
+  assert.deepEqual(
+    bucket.actionGroups.map((g) => g.name),
+    ['Users', 'Ungrouped Requests'],
+  );
+  assert.ok(
+    warnings.some((w) => /nested/i.test(w)),
+    'warns about flattened nested folders',
+  );
+  assert.ok(
+    warnings.some((w) => /script/i.test(w)),
+    'warns about skipped scripts',
+  );
+  assert.ok(
+    warnings.some((w) => /Unsupported auth type "oauth2"/.test(w)),
+    'warns about unsupported auth',
+  );
 
   // What the runner will actually call, once variables are filled in.
   const env = vars({ baseUrl: 'https://api.shop.test', status_host: 'status.shop.test' });
   const urlOf = (groupName: string, stepName: string) => {
-    const step = bucket.actionGroups.find((g) => g.name === groupName)!.steps.find((s) => s.name === stepName)!;
-    const query = step.params.filter((p) => p.enabled).map((p) => `${p.key}=${p.value}`).join('&');
-    const url = joinUrl(interpolate(bucket.baseUrl, env).resolved, interpolate(step.path, env).resolved);
+    const step = bucket.actionGroups
+      .find((g) => g.name === groupName)!
+      .steps.find((s) => s.name === stepName)!;
+    const query = step.params
+      .filter((p) => p.enabled)
+      .map((p) => `${p.key}=${p.value}`)
+      .join('&');
+    const url = joinUrl(
+      interpolate(bucket.baseUrl, env).resolved,
+      interpolate(step.path, env).resolved,
+    );
     return query ? `${url}?${query}` : url;
   };
 
@@ -177,12 +263,62 @@ test('Postman import: realistic v2.1 collection maps to a valid, runnable bucket
   assert.equal(new Set(users.map((s) => s.name)).size, users.length, 'step names are unique');
   assert.equal(urlOf('Users', 'List users'), 'https://api.shop.test/users?page=2');
   assert.equal(urlOf('Users', 'Create user'), 'https://api.shop.test/users');
-  assert.equal(users.filter((s) => s.path === '/admin/users').length, 1, 'nested request flattened in');
-  assert.equal(urlOf('Ungrouped Requests', 'Health'), 'https://status.shop.test/health?verbose=true');
+  assert.deepEqual(
+    users.map((s) => [s.order, s.path]),
+    [
+      [0, '/users'],
+      [1, '/users'],
+      [2, '/admin/users'],
+    ],
+    'nested request flattened in, ordered after its siblings',
+  );
+  assert.equal(
+    urlOf('Ungrouped Requests', 'Health'),
+    'https://status.shop.test/health?verbose=true',
+  );
 
   const create = users.find((s) => s.name === 'Create user')!;
+  assert.deepEqual(create.auth, {
+    type: 'api-key',
+    apiKey: { key: 'X-Key', value: '{{apiKey}}', addTo: 'query' },
+  });
   assert.equal(create.body.type, 'x-www-form-urlencoded');
-  assert.deepEqual(parseFormPairs(create.body.content).map((p) => [p.key, p.value]), [['name', 'Ada']]);
+  assert.deepEqual(
+    parseFormPairs(create.body.content).map((p) => [p.key, p.value]),
+    [['name', 'Ada']],
+  );
+});
+
+test('bucket file import: README templates import cleanly, with fresh ids; junk is rejected', () => {
+  // The templates users copy from the README must always import.
+  const readme = readFileSync(new URL('../../../README.md', import.meta.url), 'utf8');
+  const block = (heading: string, lang: string) =>
+    readme.split(heading)[1]!.match(new RegExp('```' + lang + '\\n([\\s\\S]*?)```'))![1]!;
+  const [fromJson, fromYaml] = [
+    JSON.parse(block('#### JSON Template', 'json')),
+    yaml.parse(block('#### YAML Template', 'yaml')),
+  ].map(prepareImport);
+  assert.equal(fromJson!.actionGroups[0]!.steps[1]!.assertions[1]!.expected, '{{defaultRole}}');
+  assert.equal(fromYaml!.actionGroups[0]!.steps.length, 2);
+
+  // So must the templates offered in the app's import dialog.
+  const webTemplate = (ext: string) =>
+    readFileSync(
+      new URL(`../../web/src/templates/fortest-template.${ext}`, import.meta.url),
+      'utf8',
+    );
+  prepareImport(JSON.parse(webTemplate('json')));
+  prepareImport(yaml.parse(webTemplate('yaml')));
+
+  const exported = TestBucketSchema.parse(fromJson);
+  const reimported = prepareImport(exported);
+  assert.notEqual(reimported.id, exported.id);
+  assert.notEqual(reimported.actionGroups[0]!.steps[0]!.id, exported.actionGroups[0]!.steps[0]!.id);
+  assert.equal(reimported.actionGroups[0]!.steps[0]!.name, 'Login Step');
+
+  assert.throws(() => prepareImport({}), /Not a Fortest bucket file/);
+  assert.throws(() => prepareImport({ name: 'x', surprise: true }), /Unrecognized key/);
+  assert.throws(() => prepareImport('just a string'));
 });
 
 test('runGroup: chains an extracted token across steps, one isolated context per data-store record', async (t) => {
@@ -194,8 +330,15 @@ test('runGroup: chains an extracted token across steps, one isolated context per
       res.setHeader('content-type', 'application/json');
       if (req.method === 'POST' && req.url === '/login') {
         res.end(JSON.stringify({ data: { token: `tok-${JSON.parse(body).user}` } }));
-      } else if (req.url === '/me' && /^Bearer tok-(ada|bob)$/.test(req.headers.authorization ?? '')) {
-        res.end(JSON.stringify({ user: { name: req.headers.authorization!.slice(11), role: 'developer' } }));
+      } else if (
+        req.url?.startsWith('/me?who=') &&
+        /^Bearer tok-(ada|bob)$/.test(req.headers.authorization ?? '')
+      ) {
+        res.end(
+          JSON.stringify({
+            user: { name: req.headers.authorization!.slice(11), role: 'developer' },
+          }),
+        );
       } else {
         res.statusCode = 401;
         res.end('{}');
@@ -221,7 +364,12 @@ test('runGroup: chains an extracted token across steps, one isolated context per
         order: 0,
         createdAt: now,
         updatedAt: now,
-        dataStore: { id: randomUUID(), name: 'users', records: [{ testUser: 'ada' }, { testUser: 'bob' }], createdAt: now },
+        dataStore: {
+          id: randomUUID(),
+          name: 'users',
+          records: [{ testUser: 'ada' }, { testUser: 'bob' }],
+          createdAt: now,
+        },
         steps: [
           {
             id: randomUUID(),
@@ -230,7 +378,15 @@ test('runGroup: chains an extracted token across steps, one isolated context per
             method: 'POST',
             path: '/login',
             body: { type: 'json', content: '{"user":"{{testUser}}"}' },
-            extractions: [{ id: randomUUID(), variableName: 'authToken', source: 'body', selector: 'data.token' }],
+            extractions: [
+              {
+                id: randomUUID(),
+                variableName: 'authToken',
+                source: 'body',
+                selector: 'data.token',
+              },
+              { id: randomUUID(), variableName: 'code', source: 'status' }, // status needs no selector
+            ],
             createdAt: now,
             updatedAt: now,
           },
@@ -239,11 +395,28 @@ test('runGroup: chains an extracted token across steps, one isolated context per
             name: 'Get Profile',
             order: 1,
             path: '/me',
+            body: { type: 'json', content: '{"ignored":true}' }, // GET with a body must not fail
+            params: [
+              { id: randomUUID(), key: 'who', value: '{{testUser}}', enabled: true },
+              { id: randomUUID(), key: 'off', value: '1', enabled: false },
+            ],
             auth: { type: 'bearer', bearer: { token: '{{steps.Login Step.authToken}}' } },
             assertions: [
               { id: randomUUID(), target: 'status', operator: 'equals', expected: '200' },
-              { id: randomUUID(), target: 'body', selector: 'user.name', operator: 'equals', expected: '{{testUser}}' },
-              { id: randomUUID(), target: 'body', selector: 'user.role', operator: 'equals', expected: '{{defaultRole}}' },
+              {
+                id: randomUUID(),
+                target: 'body',
+                selector: 'user.name',
+                operator: 'equals',
+                expected: '{{testUser}}',
+              },
+              {
+                id: randomUUID(),
+                target: 'body',
+                selector: 'user.role',
+                operator: 'equals',
+                expected: '{{defaultRole}}',
+              },
             ],
             createdAt: now,
             updatedAt: now,
@@ -256,7 +429,13 @@ test('runGroup: chains an extracted token across steps, one isolated context per
 
   const runId = randomUUID();
   const events: string[] = [];
-  await runGroup(bucket.id, groupId, runId, { iterations: 2, concurrency: 2, useDataStore: true }, (e) => events.push(e.type));
+  await runGroup(
+    bucket.id,
+    groupId,
+    runId,
+    { iterations: 2, concurrency: 2, useDataStore: true },
+    (e) => events.push(e.type),
+  );
 
   const run = (await getRunById(runId))!;
   const failures = run.results.flatMap((r) =>
@@ -268,9 +447,20 @@ test('runGroup: chains an extracted token across steps, one isolated context per
   assert.equal(run.results.length, 4);
   assert.deepEqual(run.metrics && [run.metrics.totalRequests, run.metrics.failed], [4, 0]);
   assert.deepEqual(
-    run.results.filter((r) => r.stepName === 'Login Step').map((r) => r.requestBody).sort(),
+    run.results
+      .filter((r) => r.stepName === 'Login Step')
+      .map((r) => r.requestBody)
+      .sort(),
     ['{"user":"ada"}', '{"user":"bob"}'],
   );
+  assert.deepEqual(
+    run.results
+      .filter((r) => r.stepName === 'Get Profile')
+      .map((r) => new URL(r.url).search)
+      .sort(),
+    ['?who=ada', '?who=bob'],
+  );
+  assert.ok(run.results.filter((r) => r.stepName === 'Login Step').every((r) => r.extractedData['code'] === '200'));
   assert.equal(events[0], 'run:started');
   assert.equal(events.at(-1), 'run:completed');
   assert.equal(events.filter((e) => e === 'step:completed').length, 4);
