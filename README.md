@@ -461,8 +461,13 @@ With Docker, the image runs the CLI when given a command (and serves the app oth
 
 ```bash
 docker build -t fortest .
-docker run --rm -v "$PWD:/work" fortest run /work/tests/shop-api.yaml --junit /work/report.xml
+docker run --rm -v "$PWD:/work" --user "$(id -u):$(id -g)" fortest run /work/tests/shop-api.yaml --junit /work/report.xml
+docker run --rm -p 127.0.0.1:3001:3001 fortest            # the app, without Redis (in-memory storage)
 ```
+
+- Inside a container, `localhost` is the container itself. To test an API running on your machine, point the bucket (or an environment) at `http://host.docker.internal:<port>` (Docker Desktop provides this name; with plain Docker Engine on Linux add `--add-host=host.docker.internal:host-gateway`, and the API must listen on more than `127.0.0.1`).
+- `--user` keeps the report owned by you on Linux; without it, files written to the mount belong to root.
+- Exit codes come through `docker run` unchanged (`0`, `1`, `2`, `130`).
 
 ### GitHub Actions example
 

@@ -45,6 +45,9 @@ RUN pnpm install --prod --frozen-lockfile
 
 ENV NODE_ENV=production
 ENV PORT=3001
+# Listen on the container's own interfaces; who can reach it is decided by the port mapping
+# (publish it on 127.0.0.1 only: `-p 127.0.0.1:3001:3001`).
+ENV HOST=0.0.0.0
 
 EXPOSE 3001
 

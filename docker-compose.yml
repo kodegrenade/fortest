@@ -22,8 +22,7 @@ services:
       - "127.0.0.1:3001:3001"
     environment:
       - NODE_ENV=production
-      - REDIS_URL=redis://fortest-redis:6379
-      - HOST=0.0.0.0
+      - REDIS_URL=redis://redis:6379
       - PORT=3001
     depends_on:
       redis:
