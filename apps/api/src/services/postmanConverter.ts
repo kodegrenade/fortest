@@ -277,7 +277,7 @@ function extractCommonBaseUrl(
   for (const { url } of requests) {
     const parsed = resolveUrl(url);
     if (parsed.host) {
-      const key = `${parsed.protocol}://${parsed.host}${parsed.port ? ':' + parsed.port : ''}`;
+      const key = originOf(parsed);
       hostCounts.set(key, (hostCounts.get(key) || 0) + 1);
     }
   }
@@ -315,9 +315,9 @@ function resolveUrl(url: PostmanUrl | string | undefined): ResolvedUrl {
     return parseUrlString(url);
   }
 
-  // Object form
-  const protocol = url.protocol || 'https';
+  // Object form. A host like {{baseUrl}} usually carries its own scheme, so don't prepend one.
   const host = Array.isArray(url.host) ? url.host.join('.') : '';
+  const protocol = url.protocol || (host.startsWith('{{') ? '' : 'https');
   const port = url.port || '';
   const path = Array.isArray(url.path) ? '/' + url.path.join('/') : '/';
   const query = url.query || [];
@@ -325,30 +325,47 @@ function resolveUrl(url: PostmanUrl | string | undefined): ResolvedUrl {
   return { protocol, host, port, path, query };
 }
 
+/** Origin of a resolved URL, e.g. `https://api.test:8080`, or `{{baseUrl}}` when the scheme lives in a variable. */
+function originOf(r: ResolvedUrl): string {
+  return `${r.protocol ? r.protocol + '://' : ''}${r.host}${r.port ? ':' + r.port : ''}`;
+}
+
 /** Parses a raw URL string into components. */
 function parseUrlString(raw: string): ResolvedUrl {
   const result: ResolvedUrl = { protocol: 'https', host: '', port: '', path: '/', query: [] };
+  const toQuery = (params: URLSearchParams, restore: (s: string) => string) =>
+    [...params].map(([key, value]) => ({ key: restore(key), value: restore(value) }));
+
+  // Swap {{variables}} for plain placeholders while parsing: `new URL` lowercases hostnames
+  // and rejects braces, so names like {{Base_URL}} wouldn't survive otherwise.
+  const names: string[] = [];
+  const sanitized = raw.replace(/\{\{([^}]+)\}\}/g, (_m, name: string) => `pmvar${names.push(name) - 1}x`);
+  const restore = (str: string) => str.replace(/pmvar(\d+)x/g, (_m, i: string) => `{{${names[Number(i)]}}}`);
 
   try {
-    // Handle Postman variables in the URL — replace {{...}} temporarily for URL parsing
-    const sanitized = raw.replace(/\{\{([^}]+)\}\}/g, '__PM_VAR_$1__');
-
-    // Check if it's a valid full URL or a relative path
     let urlObj: URL;
-    if (sanitized.match(/^https?:\/\//i)) {
+    if (/^https?:\/\//i.test(sanitized)) {
       urlObj = new URL(sanitized);
     } else if (sanitized.startsWith('//')) {
       urlObj = new URL('https:' + sanitized);
     } else {
-      // Relative path — no host to extract
-      result.path = restoreVariables(raw.split('?')[0] || '/');
+      // Relative path, or {{baseUrl}}/path where the variable is the host (as in the object form)
+      const [path = '', qs = ''] = raw.split('?');
+      const varHost = path.match(/^(\{\{[^}]+\}\})(\/.*)?$/);
+      if (varHost) {
+        result.protocol = '';
+        result.host = varHost[1]!;
+      }
+      result.path = (varHost ? varHost[2] : path) || '/';
+      result.query = toQuery(new URLSearchParams(qs), (str) => str);
       return result;
     }
 
-    result.protocol = restoreVariables(urlObj.protocol.replace(':', ''));
-    result.host = restoreVariables(urlObj.hostname);
-    result.port = restoreVariables(urlObj.port);
-    result.path = restoreVariables(urlObj.pathname || '/');
+    result.protocol = urlObj.protocol.replace(':', '');
+    result.host = restore(urlObj.hostname);
+    result.port = urlObj.port;
+    result.path = restore(urlObj.pathname || '/');
+    result.query = toQuery(urlObj.searchParams, restore);
   } catch {
     // If URL parsing fails, treat the whole thing as a path
     result.path = raw;
@@ -357,15 +374,10 @@ function parseUrlString(raw: string): ResolvedUrl {
   return result;
 }
 
-/** Restores Postman `{{variable}}` syntax from the sanitized placeholder. */
-function restoreVariables(str: string): string {
-  return str.replace(/__PM_VAR_([^_]+)__/g, '{{$1}}');
-}
-
 /** Extracts the step path relative to the base URL. */
 function extractStepPath(url: PostmanUrl | string | undefined, baseUrl: string): string {
   const resolved = resolveUrl(url);
-  const fullHost = `${resolved.protocol}://${resolved.host}${resolved.port ? ':' + resolved.port : ''}`;
+  const fullHost = originOf(resolved);
 
   if (baseUrl && fullHost === baseUrl) {
     // Same host as base — use relative path
@@ -394,10 +406,7 @@ function extractStepPath(url: PostmanUrl | string | undefined, baseUrl: string):
 
 /** Extracts query parameters from a Postman URL and merges them into params. */
 function extractQueryParams(url: PostmanUrl | string | undefined): KeyValuePair[] {
-  if (!url || typeof url === 'string') return [];
-
-  const query = url.query || [];
-  return query
+  return resolveUrl(url).query
     .filter((q) => q.key)
     .map((q) => ({
       id: uuidv4(),

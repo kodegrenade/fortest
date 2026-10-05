@@ -11,6 +11,7 @@ import type {
   ProxyResponse,
   AuthConfig,
   ExecutionConfig,
+  AggregateMetrics,
 } from '@fortest/types';
 
 /**
@@ -33,6 +34,16 @@ export async function getRunById(runId: string): Promise<ExecutionRun | null> {
 export async function saveRun(run: ExecutionRun): Promise<void> {
   const adapter = getStorageAdapter();
   await adapter.set(`run:${run.id}`, JSON.stringify(run));
+}
+
+/**
+ * Prefixes a step path with the bucket base URL. An absolute path (e.g. a Postman request
+ * on a different host than the bucket's) is used as-is.
+ */
+export function joinUrl(baseUrl: string, path: string): string {
+  if (!baseUrl || /^https?:\/\//i.test(path)) return path;
+  if (path.startsWith('/')) return baseUrl.replace(/\/+$/, '') + path;
+  return baseUrl.endsWith('/') ? baseUrl + path : `${baseUrl}/${path}`;
 }
 
 /**
@@ -183,12 +194,7 @@ export async function runGroup(
           finalPath += (finalPath.includes('?') ? '&' : '?') + resolvedParams.join('&');
         }
 
-        const resBaseUrl = interpolate(bucket.baseUrl || '', iterVariables).resolved;
-        finalUrl = resBaseUrl;
-        if (finalUrl && !finalUrl.endsWith('/') && !finalPath.startsWith('/')) {
-          finalUrl += '/';
-        }
-        finalUrl += finalPath;
+        finalUrl = joinUrl(interpolate(bucket.baseUrl || '', iterVariables).resolved, finalPath);
 
         // 2. Resolve request headers
         const resolvedHeaders: Record<string, string> = {};
@@ -288,7 +294,11 @@ export async function runGroup(
         }
 
         // 6. Evaluate Assertions
-        const assertionResults = evaluateAssertions(proxyResponse, step.assertions || []);
+        // Expected values may reference variables, e.g. {{defaultRole}} or {{steps.Login.userId}}.
+        const assertionResults = evaluateAssertions(
+          proxyResponse,
+          (step.assertions || []).map((a) => ({ ...a, expected: interpolate(a.expected, iterVariables).resolved })),
+        );
 
         // 7. Construct Step Result
         const stepResult: StepResult = {
@@ -399,36 +409,8 @@ export async function runGroup(
     run.completedAt = new Date().toISOString();
     run.duration = Math.round(duration);
 
-    // Compute aggregate metrics
-    const totalRequests = run.results.length;
-    const failed = run.results.filter(
-      (r) => r.status >= 400 || r.status === 0 || r.error || r.assertions.some((a) => !a.passed)
-    ).length;
-    const completed = totalRequests - failed;
-
-    const latencies = run.results.map((r) => r.responseTime).sort((a, b) => a - b);
-    const avgLatency = totalRequests > 0 ? latencies.reduce((acc, l) => acc + l, 0) / totalRequests : 0;
-
-    const getPercentile = (sorted: number[], p: number): number => {
-      if (sorted.length === 0) return 0;
-      const idx = Math.ceil((p / 100) * sorted.length) - 1;
-      return sorted[idx] ?? 0;
-    };
-
-    run.metrics = {
-      totalRequests,
-      completed,
-      failed,
-      avgLatency,
-      minLatency: latencies.length > 0 ? latencies[0]! : 0,
-      maxLatency: latencies.length > 0 ? latencies[latencies.length - 1]! : 0,
-      p50: getPercentile(latencies, 50),
-      p95: getPercentile(latencies, 95),
-      p99: getPercentile(latencies, 99),
-      throughputPerSec: duration > 0 ? (totalRequests / duration) * 1000 : 0,
-      errorRate: totalRequests > 0 ? (failed / totalRequests) * 100 : 0,
-      totalDataTransferred: run.results.reduce((acc, r) => acc + r.responseSize, 0),
-    };
+    run.metrics = computeMetrics(run.results, duration);
+    const { totalRequests, completed, failed } = run.metrics;
 
     await saveRun(run);
 
@@ -464,6 +446,35 @@ export async function runGroup(
     // Trim old runs in background
     trimOldRuns(groupId).catch((e) => console.error('Error trimming runs:', e));
   }
+}
+
+/**
+ * A result counts as failed on a network error, an HTTP error status, or any failed assertion.
+ */
+export function computeMetrics(results: StepResult[], durationMs: number): AggregateMetrics {
+  const totalRequests = results.length;
+  const failed = results.filter(
+    (r) => r.status >= 400 || r.status === 0 || r.error || r.assertions.some((a) => !a.passed)
+  ).length;
+
+  const latencies = results.map((r) => r.responseTime).sort((a, b) => a - b);
+  // Nearest-rank percentile.
+  const percentile = (p: number) => latencies[Math.ceil((p / 100) * latencies.length) - 1] ?? 0;
+
+  return {
+    totalRequests,
+    completed: totalRequests - failed,
+    failed,
+    avgLatency: totalRequests > 0 ? latencies.reduce((acc, l) => acc + l, 0) / totalRequests : 0,
+    minLatency: latencies[0] ?? 0,
+    maxLatency: latencies[latencies.length - 1] ?? 0,
+    p50: percentile(50),
+    p95: percentile(95),
+    p99: percentile(99),
+    throughputPerSec: durationMs > 0 ? (totalRequests / durationMs) * 1000 : 0,
+    errorRate: totalRequests > 0 ? (failed / totalRequests) * 100 : 0,
+    totalDataTransferred: results.reduce((acc, r) => acc + r.responseSize, 0),
+  };
 }
 
 /**
