@@ -1,7 +1,7 @@
 import { useEffect } from 'react';
 import { useExecutionStore } from '@/stores/executionStore';
 import { ClockIcon, CheckCircleIcon, XIcon } from '@/components/common/Icons';
-import { toneBadge } from '@/utils/results';
+import { runTone, toneBadge } from '@/utils/results';
 
 const dateFormat = new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' });
 const relativeFormat = new Intl.RelativeTimeFormat(undefined, { numeric: 'auto' });
@@ -115,7 +115,7 @@ export function HistoryList({ groupId }: HistoryListProps) {
                         textTransform: 'uppercase',
                         padding: '2px 8px',
                         borderRadius: '4px',
-                        ...toneBadge(isSuccess ? 'passed' : run.status === 'running' ? 'running' : 'failed', 12),
+                        ...toneBadge(isSuccess ? 'passed' : run.status === 'completed' ? 'failed' : runTone(run.status), 12),
                         border: 'none',
                       }}
                     >
@@ -126,7 +126,7 @@ export function HistoryList({ groupId }: HistoryListProps) {
                       ) : (
                         <XIcon size={12} />
                       )}
-                      {run.status === 'running' ? 'Running' : isSuccess ? 'Passed' : 'Failed'}
+                      {run.status === 'running' ? 'Running' : run.status === 'cancelled' ? 'Cancelled' : isSuccess ? 'Passed' : 'Failed'}
                     </span>
                   </td>
                   <td style={{ padding: '14px 16px', color: 'var(--text-secondary)' }}>

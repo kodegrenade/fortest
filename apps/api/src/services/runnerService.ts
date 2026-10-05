@@ -1,7 +1,8 @@
 import { randomUUID } from 'node:crypto';
+import { setTimeout as sleep } from 'node:timers/promises';
 import { getBucketById } from './bucketService';
 import { getStorageAdapter } from './storage';
-import { interpolate, parseFormPairs } from '@fortest/utils';
+import { interpolate, isFailedResult, parseFormPairs } from '@fortest/utils';
 import { extractValue, stringify } from './extractionService';
 import { evaluateAssertions } from './assertionService';
 import type {
@@ -13,28 +14,70 @@ import type {
   ExecutionConfig,
   AggregateMetrics,
   KeyValuePair,
+  RunEvent,
+  RunSummary,
 } from '@fortest/types';
 
-/**
- * Retrieves a historical or active execution run by ID.
- */
-export async function getRunById(runId: string): Promise<ExecutionRun | null> {
-  const adapter = getStorageAdapter();
-  const data = await adapter.get(`run:${runId}`);
-  if (!data) return null;
-  try {
-    return JSON.parse(data) as ExecutionRun;
-  } catch {
-    return null;
-  }
+// Storage layout: run:<id> holds the summary (rewritten as the run progresses), run:<id>:results
+// is a list the runner appends each step result to, runs:active indexes runs still in progress.
+const runKey = (id: string) => `run:${id}`;
+const resultsKey = (id: string) => `run:${id}:results`;
+const ACTIVE_RUNS = 'runs:active';
+
+const MAX_STORED_BODY = 1024 * 1024; // characters
+const capBody = (body: string) =>
+  body.length > MAX_STORED_BODY ? `${body.slice(0, MAX_STORED_BODY)}\n…[truncated at 1 MB]` : body;
+
+// Runs executing in this process, so they can be cancelled.
+const activeRuns = new Map<string, AbortController>();
+
+async function readRun(runId: string): Promise<ExecutionRun | null> {
+  const data = await getStorageAdapter().get(runKey(runId));
+  return data ? (JSON.parse(data) as ExecutionRun) : null;
 }
 
-/**
- * Saves or updates an execution run.
- */
-export async function saveRun(run: ExecutionRun): Promise<void> {
+/** A run without its step results (cheap: used for history lists). */
+export async function getRunSummary(runId: string): Promise<RunSummary | null> {
+  const run = await readRun(runId);
+  if (!run) return null;
+  const { results: _legacyResults, ...summary } = run;
+  return summary;
+}
+
+/** A run with all its stored step results. */
+export async function getRunById(runId: string): Promise<ExecutionRun | null> {
+  const run = await readRun(runId);
+  if (!run) return null;
+  const stored = await getStorageAdapter().lrange(resultsKey(runId), 0, -1);
+  // Runs saved before results moved to their own list kept them inline.
+  return { ...run, results: stored.length ? stored.map((r) => JSON.parse(r) as StepResult) : (run.results ?? []) };
+}
+
+async function saveSummary(run: RunSummary): Promise<void> {
+  await getStorageAdapter().set(runKey(run.id), JSON.stringify(run));
+}
+
+/** Stops a run in progress. False if it isn't running in this process. */
+export function cancelRun(runId: string): boolean {
+  activeRuns.get(runId)?.abort();
+  return activeRuns.has(runId);
+}
+
+/** Runs left "running" by a crash or restart can never finish: mark them failed. Call at startup. */
+export async function failOrphanedRuns(): Promise<void> {
   const adapter = getStorageAdapter();
-  await adapter.set(`run:${run.id}`, JSON.stringify(run));
+  for (const runId of await adapter.smembers(ACTIVE_RUNS)) {
+    const run = await getRunSummary(runId);
+    if (run?.status === 'running') {
+      await saveSummary({
+        ...run,
+        status: 'failed',
+        error: 'Interrupted: the server stopped while this run was in progress.',
+        completedAt: new Date().toISOString(),
+      });
+    }
+    await adapter.srem(ACTIVE_RUNS, runId);
+  }
 }
 
 /**
@@ -79,7 +122,7 @@ export async function runGroup(
   groupId: string,
   runId: string,
   inputConfig: Partial<ExecutionConfig> | undefined,
-  emitEvent: (event: any) => void
+  emitEvent: (event: RunEvent) => void
 ): Promise<void> {
   const bucket = await getBucketById(bucketId);
   if (!bucket) {
@@ -100,41 +143,48 @@ export async function runGroup(
     useDataStore: inputConfig?.useDataStore ?? false,
   };
 
-  const run: ExecutionRun = {
+  const run: RunSummary = {
     id: runId,
     bucketId,
     actionGroupId: groupId,
     actionGroupName: group.name,
     config,
     status: 'running',
-    results: [],
     startedAt: new Date().toISOString(),
     createdAt: new Date().toISOString(),
   };
 
-  await saveRun(run);
+  const adapter = getStorageAdapter();
+  await saveSummary(run);
+  await adapter.sadd(ACTIVE_RUNS, runId);
+  await adapter.zadd(`group:${groupId}:runs`, Date.now(), runId);
 
-  // Associate run with action group history
-  await getStorageAdapter().zadd(`group:${groupId}:runs`, Date.now(), runId);
+  const controller = new AbortController();
+  activeRuns.set(runId, controller);
+  const cancelled = controller.signal;
 
-  // Give the WebSocket client a moment to connect and subscribe
-  await new Promise((resolve) => setTimeout(resolve, 100));
-
-  emitEvent({
-    type: 'run:started',
-    runId,
-    timestamp: new Date().toISOString(),
-    totalSteps: group.steps.length,
-    totalIterations: config.iterations,
-  });
+  emitEvent({ type: 'run:started', runId, totalSteps: group.steps.length, totalIterations: config.iterations });
 
   const startTime = performance.now();
   const sortedSteps = [...group.steps].sort((a, b) => a.order - b.order);
   const records = config.useDataStore ? (group.dataStore?.records ?? []) : [];
 
+  // Metrics only need these fields, so the run's response bodies never pile up in memory.
+  const metricRows: Parameters<typeof computeMetrics>[0] = [];
+
   const recordResult = async (result: StepResult) => {
-    run.results.push(result);
-    await saveRun(run);
+    const { status, responseTime, responseSize, error, assertions } = result;
+    metricRows.push({ status, responseTime, responseSize, error, assertions });
+
+    // Bodies are kept for single runs, the first iteration and failed steps; other load-test
+    // results keep everything but the bodies.
+    const keepBodies = config.iterations === 1 || result.iteration === 1 || isFailedResult(result);
+    const stored: StepResult = keepBodies
+      ? { ...result, responseBody: capBody(result.responseBody), requestBody: result.requestBody && capBody(result.requestBody) }
+      : { ...result, responseBody: '', requestBody: undefined, bodyOmitted: !!(result.responseBody || result.requestBody) };
+
+    await adapter.rpush(resultsKey(runId), JSON.stringify(stored));
+    emitEvent({ type: 'step:finished', runId, result: stored });
   };
 
   const runSingleIteration = async (iteration: number) => {
@@ -147,6 +197,7 @@ export async function runGroup(
     const v = (s: string) => interpolate(s, variables).resolved;
 
     for (const step of sortedSteps) {
+      if (cancelled.aborted) return;
       const stepStartTime = performance.now();
       const base = { stepId: step.id, stepName: step.name, iteration, method: step.method };
       let url = '';
@@ -194,7 +245,7 @@ export async function runGroup(
           method: step.method,
           headers,
           body,
-          signal: AbortSignal.timeout(10_000),
+          signal: AbortSignal.any([AbortSignal.timeout(10_000), cancelled]),
           redirect: 'follow',
         });
         const time = Math.round(performance.now() - stepStartTime); // time to response headers
@@ -239,8 +290,8 @@ export async function runGroup(
           timestamp: new Date().toISOString(),
           url,
         });
-        emitEvent({ type: 'step:completed', runId, ...base, statusCode: res.status, responseTime: time, extractedData, assertions, url });
       } catch (stepErr) {
+        if (cancelled.aborted) return; // stopped by the user: not a step failure
         const error = stepErr instanceof Error ? stepErr.message : 'Unknown network or execution error';
         const responseTime = Math.round(performance.now() - stepStartTime);
         url ||= step.path;
@@ -261,14 +312,13 @@ export async function runGroup(
           timestamp: new Date().toISOString(),
           url,
         });
-        emitEvent({ type: 'step:failed', runId, ...base, error, responseTime, url });
 
         // A failed request ends this iteration
         return;
       }
 
       if (config.delayBetweenSteps > 0) {
-        await new Promise((resolve) => setTimeout(resolve, config.delayBetweenSteps));
+        await sleep(config.delayBetweenSteps, undefined, { signal: cancelled }).catch(() => {});
       }
     }
   };
@@ -276,7 +326,7 @@ export async function runGroup(
   // Worker pool: `concurrency` workers pull iteration numbers until none are left.
   let nextIteration = 1;
   const worker = async () => {
-    while (nextIteration <= config.iterations) {
+    while (nextIteration <= config.iterations && !cancelled.aborted) {
       const iteration = nextIteration++;
       await runSingleIteration(iteration).catch((err) => console.error(`Error executing iteration ${iteration}:`, err));
     }
@@ -284,25 +334,20 @@ export async function runGroup(
 
   try {
     await Promise.all(Array.from({ length: Math.min(config.concurrency, config.iterations) }, worker));
-
-    const duration = performance.now() - startTime;
-    run.status = 'completed';
-    run.completedAt = new Date().toISOString();
-    run.duration = Math.round(duration);
-    run.metrics = computeMetrics(run.results, duration);
-    await saveRun(run);
-
-    const { totalRequests, completed, failed } = run.metrics;
-    emitEvent({ type: 'run:completed', runId, summary: { totalRequests, completed, failed }, duration: run.duration });
+    run.status = cancelled.aborted ? 'cancelled' : 'completed';
+    if (cancelled.aborted) run.error = 'Cancelled by user';
+    run.metrics = computeMetrics(metricRows, performance.now() - startTime);
   } catch (err) {
     console.error(`Execution failed for run ${runId}`, err);
     run.status = 'failed';
+    run.error = err instanceof Error ? err.message : 'Unknown execution error';
+  } finally {
+    activeRuns.delete(runId);
     run.completedAt = new Date().toISOString();
     run.duration = Math.round(performance.now() - startTime);
-    await saveRun(run);
-
-    emitEvent({ type: 'run:failed', runId, error: err instanceof Error ? err.message : 'Unknown execution error' });
-  } finally {
+    await saveSummary(run);
+    await adapter.srem(ACTIVE_RUNS, runId);
+    emitEvent({ type: 'run:finished', runId, run });
     trimOldRuns(groupId).catch((e) => console.error('Error trimming runs:', e));
   }
 }
@@ -310,11 +355,12 @@ export async function runGroup(
 /**
  * A result counts as failed on a network error, an HTTP error status, or any failed assertion.
  */
-export function computeMetrics(results: StepResult[], durationMs: number): AggregateMetrics {
+export function computeMetrics(
+  results: Pick<StepResult, 'status' | 'responseTime' | 'responseSize' | 'error' | 'assertions'>[],
+  durationMs: number,
+): AggregateMetrics {
   const totalRequests = results.length;
-  const failed = results.filter(
-    (r) => r.status >= 400 || r.status === 0 || r.error || r.assertions.some((a) => !a.passed)
-  ).length;
+  const failed = results.filter(isFailedResult).length;
 
   const latencies = results.map((r) => r.responseTime).sort((a, b) => a - b);
   // Nearest-rank percentile.
@@ -350,7 +396,8 @@ async function trimOldRuns(groupId: string): Promise<void> {
       // Index 50 to -1 are the 51st and older runs.
       const runsToRemove = await adapter.zrevrange(runsKey, limit, -1);
       for (const oldId of runsToRemove) {
-        await adapter.del(`run:${oldId}`);
+        await adapter.del(runKey(oldId));
+        await adapter.del(resultsKey(oldId));
       }
       // Trim sorted set: remove the oldest (ranks 0 to count - limit - 1)
       await adapter.zremrangebyrank(runsKey, 0, count - limit - 1);
@@ -361,20 +408,10 @@ async function trimOldRuns(groupId: string): Promise<void> {
 }
 
 /**
- * Retrieves the historical runs list for an Action Group, excluding detailed step results for speed.
+ * The history list for an Action Group, newest first: summaries only, no step results.
  */
-export async function getGroupRuns(groupId: string): Promise<any[]> {
-  const adapter = getStorageAdapter();
-  const runsKey = `group:${groupId}:runs`;
-  const runIds = await adapter.zrevrange(runsKey, 0, -1);
-
-  const runsList = [];
-  for (const runId of runIds) {
-    const run = await getRunById(runId);
-    if (run) {
-      const { results, ...summary } = run;
-      runsList.push(summary);
-    }
-  }
-  return runsList;
+export async function getGroupRuns(groupId: string): Promise<RunSummary[]> {
+  const runIds = await getStorageAdapter().zrevrange(`group:${groupId}:runs`, 0, -1);
+  const summaries = await Promise.all(runIds.map(getRunSummary));
+  return summaries.filter((r): r is RunSummary => r !== null);
 }

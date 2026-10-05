@@ -22,7 +22,7 @@ export function StepResultCard({ result }: StepResultCardProps) {
 
   const tabs = [
     { id: 'overview', label: 'Overview' },
-    ...(result.requestBody ? [{ id: 'requestBody', label: 'Request Body' }] : []),
+    ...(result.requestBody || result.bodyOmitted ? [{ id: 'requestBody', label: 'Request Body' }] : []),
     { id: 'headers', label: 'Headers' },
     { id: 'body', label: 'Response Body' },
     { id: 'assertions', label: `Assertions (${result.assertions.length})` },
@@ -187,7 +187,9 @@ export function StepResultCard({ result }: StepResultCardProps) {
                 cursor: 'text',
               }}
               value={
-                activeTab === 'body'
+                result.bodyOmitted
+                  ? 'Body not retained: load runs keep bodies only for iteration 1 and for failed steps.'
+                  : activeTab === 'body'
                   ? result.responseBody ? prettyJson(result.responseBody) : 'Empty response body'
                   : result.requestBody ? prettyJson(result.requestBody) : 'Empty request body'
               }

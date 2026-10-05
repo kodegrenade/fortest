@@ -15,6 +15,8 @@ export interface StorageAdapter {
   zrevrange(key: string, start: number, stop: number): Promise<string[]>;
   zcard(key: string): Promise<number>;
   zremrangebyrank(key: string, start: number, stop: number): Promise<void>;
+  rpush(key: string, value: string): Promise<void>;
+  lrange(key: string, start: number, stop: number): Promise<string[]>;
 }
 
 // --- Redis Implementation ---
@@ -39,6 +41,8 @@ class RedisStorageAdapter implements StorageAdapter {
   zcard = (key: string) => redis().zCard(key);
   zremrangebyrank = async (key: string, start: number, stop: number) =>
     void (await redis().zRemRangeByRank(key, start, stop));
+  rpush = async (key: string, value: string) => void (await redis().rPush(key, value));
+  lrange = (key: string, start: number, stop: number) => redis().lRange(key, start, stop);
 }
 
 // --- In-Memory Implementation ---
@@ -47,6 +51,7 @@ class MemoryStorageAdapter implements StorageAdapter {
   private store = new Map<string, string>();
   private sets = new Map<string, Set<string>>();
   private sortedSets = new Map<string, Map<string, number>>(); // member -> score
+  private lists = new Map<string, string[]>();
 
   // Members ordered by ascending score, like Redis.
   private ranked(key: string): string[] {
@@ -67,6 +72,7 @@ class MemoryStorageAdapter implements StorageAdapter {
     this.store.delete(key);
     this.sets.delete(key);
     this.sortedSets.delete(key);
+    this.lists.delete(key);
   }
 
   async sadd(key: string, member: string) {
@@ -99,6 +105,16 @@ class MemoryStorageAdapter implements StorageAdapter {
     const set = this.sortedSets.get(key);
     for (const member of this.ranked(key).slice(start, stop === -1 ? undefined : stop + 1))
       set?.delete(member);
+  }
+
+  async rpush(key: string, value: string) {
+    const list = this.lists.get(key) ?? [];
+    list.push(value);
+    this.lists.set(key, list);
+  }
+
+  async lrange(key: string, start: number, stop: number) {
+    return (this.lists.get(key) ?? []).slice(start, stop === -1 ? undefined : stop + 1);
   }
 }
 

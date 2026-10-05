@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { randomUUID } from 'node:crypto';
-import { runGroup, getRunById, getGroupRuns } from '../services/runnerService';
+import { runGroup, getRunById, getGroupRuns, cancelRun } from '../services/runnerService';
 import { getBucketById } from '../services/bucketService';
 import { broadcastToRun } from '../services/websocketService';
 import { ExecutionConfigSchema, type ApiError } from '@fortest/types';
@@ -89,6 +89,19 @@ router.get('/:id', async (req, res) => {
   }
 
   res.json(run);
+});
+
+/**
+ * POST /api/runs/:id/cancel
+ * Stops a run in progress; it finishes with status "cancelled".
+ */
+router.post('/:id/cancel', (req, res) => {
+  if (!cancelRun(req.params['id']!)) {
+    const error: ApiError = { error: 'Not Found', message: 'Run is not in progress.', statusCode: 404 };
+    res.status(404).json(error);
+    return;
+  }
+  res.status(202).json({ runId: req.params['id'] });
 });
 
 export default router;

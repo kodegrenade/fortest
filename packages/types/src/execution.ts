@@ -43,6 +43,8 @@ export const StepResultSchema = z.object({
   assertions: z.array(AssertionResultSchema).default([]),
   error: z.string().optional(), // populated if the request itself failed (network error, timeout)
   requestBody: z.string().optional(),
+  // True when the bodies weren't kept: load runs only keep them for iteration 1 and failed steps.
+  bodyOmitted: z.boolean().optional(),
   timestamp: z.string().datetime(),
   url: z.string().default(''),
   method: z.string().default('GET'),
@@ -84,6 +86,20 @@ export const ExecutionRunSchema = z.object({
   startedAt: z.string().datetime().optional(),
   completedAt: z.string().datetime().optional(),
   duration: z.number().min(0).optional(), // total ms
+  error: z.string().optional(), // why a run failed or stopped early
   createdAt: z.string().datetime(),
 });
 export type ExecutionRun = z.infer<typeof ExecutionRunSchema>;
+
+/** A run without its step results (what history lists and run:finished carry). */
+export type RunSummary = Omit<ExecutionRun, 'results'>;
+
+// --- Live run events (WebSocket) ---
+// A client that subscribes gets a `run:snapshot` first, so nothing emitted before it subscribed is lost.
+
+export type RunEvent =
+  | { type: 'run:snapshot'; runId: string; run: ExecutionRun }
+  | { type: 'run:started'; runId: string; totalSteps: number; totalIterations: number }
+  | { type: 'step:started'; runId: string; stepId: string; stepName: string; iteration: number; method: string }
+  | { type: 'step:finished'; runId: string; result: StepResult }
+  | { type: 'run:finished'; runId: string; run: RunSummary };

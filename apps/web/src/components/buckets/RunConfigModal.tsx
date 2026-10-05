@@ -123,7 +123,7 @@ export function RunConfigModal({ bucketId, groupId, onClose }: RunConfigModalPro
       };
 
       // 3. Trigger run
-      await startRun(bucketId, groupId, finalConfig);
+      await startRun(bucketId, groupId, finalConfig, group.name);
       addToast('Execution run initiated successfully', 'success');
       onClose();
     } catch (err: any) {

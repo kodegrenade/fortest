@@ -4,10 +4,13 @@ import assert from 'node:assert/strict';
 import http from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { randomUUID } from 'node:crypto';
-import { interpolate, parseFormPairs } from '@fortest/utils';
+import { applyRunEvent, interpolate, parseFormPairs } from '@fortest/utils';
 import {
   TestBucketSchema,
   type Assertion,
+  type ExecutionRun,
+  type RunEvent,
+  type Step,
   type BucketVariable,
   type ProxyResponse,
   type StepResult,
@@ -16,7 +19,17 @@ import {
 import { extractValue } from './services/extractionService';
 import { evaluateAssertion } from './services/assertionService';
 import { isPostmanCollection, convertPostmanCollection } from './services/postmanConverter';
-import { computeMetrics, joinUrl, runGroup, getRunById } from './services/runnerService';
+import {
+  cancelRun,
+  computeMetrics,
+  failOrphanedRuns,
+  getGroupRuns,
+  getRunById,
+  getRunSummary,
+  joinUrl,
+  runGroup,
+} from './services/runnerService';
+import { getStorageAdapter } from './services/storage';
 import { saveBucket, prepareImport } from './services/bucketService';
 import { readFileSync } from 'node:fs';
 import * as yaml from 'yaml';
@@ -446,13 +459,10 @@ test('runGroup: chains an extracted token across steps, one isolated context per
   assert.equal(run.config.mode, 'load');
   assert.equal(run.results.length, 4);
   assert.deepEqual(run.metrics && [run.metrics.totalRequests, run.metrics.failed], [4, 0]);
-  assert.deepEqual(
-    run.results
-      .filter((r) => r.stepName === 'Login Step')
-      .map((r) => r.requestBody)
-      .sort(),
-    ['{"user":"ada"}', '{"user":"bob"}'],
-  );
+  // Iteration 1 keeps its bodies (data-store record 1 = ada); iteration 2's passing results don't.
+  const logins = run.results.filter((r) => r.stepName === 'Login Step');
+  assert.equal(logins.find((r) => r.iteration === 1)?.requestBody, '{"user":"ada"}');
+  assert.equal(logins.find((r) => r.iteration === 2)?.bodyOmitted, true);
   assert.deepEqual(
     run.results
       .filter((r) => r.stepName === 'Get Profile')
@@ -460,8 +470,197 @@ test('runGroup: chains an extracted token across steps, one isolated context per
       .sort(),
     ['?who=ada', '?who=bob'],
   );
-  assert.ok(run.results.filter((r) => r.stepName === 'Login Step').every((r) => r.extractedData['code'] === '200'));
+  assert.ok(
+    run.results
+      .filter((r) => r.stepName === 'Login Step')
+      .every((r) => r.extractedData['code'] === '200'),
+  );
   assert.equal(events[0], 'run:started');
-  assert.equal(events.at(-1), 'run:completed');
-  assert.equal(events.filter((e) => e === 'step:completed').length, 4);
+  assert.equal(events.at(-1), 'run:finished');
+  assert.equal(events.filter((e) => e === 'step:finished').length, 4);
+});
+
+// --- Run storage, body retention, cancellation ---
+
+/** A local API for run tests: /ok, /fail (500) and /slow (200 ms). */
+async function startTarget(t: { after: (fn: () => void) => void }): Promise<string> {
+  const server = http.createServer((req, res) => {
+    res.setHeader('content-type', 'application/json');
+    if (req.url === '/fail') {
+      res.statusCode = 500;
+      res.end('{"error":"boom"}');
+    } else if (req.url === '/slow') {
+      setTimeout(() => res.end('{"slow":true}'), 200);
+    } else {
+      res.end('{"ok":true}');
+    }
+  });
+  await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
+  t.after(() => server.close());
+  return `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+}
+
+/** Saves a one-group bucket whose steps GET the given paths; returns ids for runGroup. */
+async function saveFlow(baseUrl: string, paths: string[]) {
+  const now = new Date().toISOString();
+  const groupId = randomUUID();
+  const steps: Partial<Step>[] = paths.map((path, order) => ({
+    id: randomUUID(),
+    name: `GET ${path}`,
+    order,
+    path,
+    createdAt: now,
+    updatedAt: now,
+  }));
+  const bucket = TestBucketSchema.parse({
+    id: randomUUID(),
+    name: 'runs',
+    baseUrl,
+    createdAt: now,
+    updatedAt: now,
+    actionGroups: [{ id: groupId, name: 'g', order: 0, steps, createdAt: now, updatedAt: now }],
+  });
+  await saveBucket(bucket);
+  return { bucketId: bucket.id, groupId };
+}
+
+test('runs: summary + appended results; load runs keep bodies for iteration 1 and failures only', async (t) => {
+  const { bucketId, groupId } = await saveFlow(await startTarget(t), ['/ok', '/fail']);
+  const runId = randomUUID();
+  await runGroup(bucketId, groupId, runId, { iterations: 3 }, () => {});
+
+  const stored = JSON.parse((await getStorageAdapter().get(`run:${runId}`))!);
+  assert.equal('results' in stored, false, 'summary key holds no results');
+  assert.equal(stored.status, 'completed');
+
+  const run = (await getRunById(runId))!;
+  assert.equal(run.results.length, 6);
+  assert.deepEqual([run.metrics?.totalRequests, run.metrics?.failed], [6, 3]);
+  for (const r of run.results) {
+    if (r.stepName === 'GET /fail')
+      assert.equal(r.responseBody, '{"error":"boom"}', 'failures keep bodies');
+    else if (r.iteration === 1)
+      assert.equal(r.responseBody, '{"ok":true}', 'iteration 1 keeps bodies');
+    else
+      assert.deepEqual(
+        [r.responseBody, r.bodyOmitted, r.status],
+        ['', true, 200],
+        'later passing results drop bodies',
+      );
+  }
+
+  const history = await getGroupRuns(groupId);
+  assert.deepEqual(
+    history.map((h) => h.id),
+    [runId],
+  );
+  assert.equal('results' in history[0]!, false);
+});
+
+test('runs: cancelling stops a run between steps and records it as cancelled', async (t) => {
+  const { bucketId, groupId } = await saveFlow(await startTarget(t), ['/slow']);
+  const runId = randomUUID();
+  const events: RunEvent[] = [];
+  const running = runGroup(bucketId, groupId, runId, { iterations: 50 }, (e) => events.push(e));
+  await new Promise((r) => setTimeout(r, 450));
+  assert.equal(cancelRun(runId), true);
+  await running;
+
+  const run = (await getRunById(runId))!;
+  assert.equal(run.status, 'cancelled');
+  assert.equal(run.error, 'Cancelled by user');
+  assert.ok(run.results.length > 0 && run.results.length < 50, `${run.results.length} results`);
+  assert.ok(
+    run.results.every((r) => !r.error),
+    'the request in flight when cancelled is not recorded as a failure',
+  );
+  assert.equal(cancelRun(runId), false, 'nothing to cancel once finished');
+  assert.equal(events.at(-1)?.type, 'run:finished');
+});
+
+test('runs: startup marks runs orphaned by a restart as failed; legacy inline results still load', async () => {
+  const adapter = getStorageAdapter();
+  const now = new Date().toISOString();
+  const base = {
+    bucketId: randomUUID(),
+    actionGroupId: randomUUID(),
+    actionGroupName: 'g',
+    createdAt: now,
+    config: {
+      mode: 'manual',
+      iterations: 1,
+      concurrency: 1,
+      delayBetweenSteps: 0,
+      useDataStore: false,
+    },
+  };
+
+  const orphanId = randomUUID();
+  await adapter.set(
+    `run:${orphanId}`,
+    JSON.stringify({ ...base, id: orphanId, status: 'running' }),
+  );
+  await adapter.sadd('runs:active', orphanId);
+  await failOrphanedRuns();
+  const orphan = (await getRunSummary(orphanId))!;
+  assert.equal(orphan.status, 'failed');
+  assert.match(orphan.error ?? '', /Interrupted/);
+  assert.deepEqual(await adapter.smembers('runs:active'), []);
+
+  const legacyId = randomUUID();
+  const legacyResult = { stepId: randomUUID(), stepName: 's', iteration: 1, status: 200 };
+  await adapter.set(
+    `run:${legacyId}`,
+    JSON.stringify({ ...base, id: legacyId, status: 'completed', results: [legacyResult] }),
+  );
+  assert.deepEqual((await getRunById(legacyId))!.results, [legacyResult]);
+  assert.equal('results' in (await getRunSummary(legacyId))!, false);
+});
+
+test('applyRunEvent: events and snapshot merge in any order without losing results or status', () => {
+  const runId = randomUUID();
+  const [a, b] = [randomUUID(), randomUUID()];
+  const result = (stepId: string, status = 200) =>
+    ({
+      stepId,
+      stepName: stepId,
+      iteration: 1,
+      status,
+      statusText: 'OK',
+      assertions: [],
+    }) as unknown as ExecutionRun['results'][number];
+  const start = { id: runId, status: 'running', results: [] } as unknown as ExecutionRun;
+  const apply = (run: ExecutionRun | null, ...events: RunEvent[]) =>
+    events.reduce(applyRunEvent, run);
+
+  let run = apply(
+    start,
+    { type: 'step:started', runId, stepId: a, stepName: 'a', iteration: 1, method: 'GET' },
+    { type: 'step:finished', runId, result: result(a) },
+    { type: 'step:started', runId, stepId: a, stepName: 'a', iteration: 1, method: 'GET' }, // late duplicate
+  )!;
+  assert.deepEqual(
+    run.results.map((r) => r.statusText),
+    ['OK'],
+    'a placeholder never replaces a finished result',
+  );
+
+  run = apply(
+    run,
+    { type: 'run:finished', runId, run: { ...start, status: 'completed' } },
+    {
+      type: 'run:snapshot',
+      runId,
+      run: { ...start, status: 'running', results: [result(a), result(b, 500)] },
+    }, // stale snapshot
+  )!;
+  assert.equal(run.status, 'completed', 'a stale snapshot never undoes a finished status');
+  assert.deepEqual(
+    run.results.map((r) => r.stepId),
+    [a, b],
+    'snapshot results are merged in',
+  );
+
+  assert.equal(apply(null, { type: 'run:snapshot', runId, run: start })?.id, runId);
+  assert.equal(apply(null, { type: 'step:finished', runId, result: result(a) }), null);
 });

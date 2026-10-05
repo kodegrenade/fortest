@@ -18,6 +18,10 @@ export const TONE_COLOR: Record<Tone, string> = {
   pending: 'var(--text-tertiary)',
 };
 
+/** Tone for a run or background-job status. */
+export const runTone = (status: string): Tone =>
+  status === 'completed' ? 'passed' : status === 'failed' ? 'failed' : status === 'running' ? 'running' : 'pending';
+
 /** A theme color at the given opacity (follows the active color preset). */
 export const tint = (color: string, percent: number) =>
   `color-mix(in srgb, ${color} ${percent}%, transparent)`;

@@ -1,4 +1,5 @@
 import { WebSocket } from 'ws';
+import type { RunEvent } from '@fortest/types';
 
 // Map runId => Set of WebSocket client connections
 const runSubscriptions = new Map<string, Set<WebSocket>>();
@@ -45,7 +46,7 @@ export function clearClientSubscriptions(ws: WebSocket): void {
 /**
  * Broadcasts an execution event to all clients subscribed to a runId.
  */
-export function broadcastToRun(runId: string, event: any): void {
+export function broadcastToRun(runId: string, event: RunEvent): void {
   const clients = runSubscriptions.get(runId);
   if (!clients) return;
 

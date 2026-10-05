@@ -32,6 +32,7 @@ Observe tests in real time via active WebSocket pipelines:
 - Inspect step duration waterfalls, request details, and resolved request bodies.
 - View real-time assertion checks and dynamic extraction outputs.
 - Receive OS-level push notifications once long-running suites or load tests finish executing in the background.
+- Stop a run at any time; opening a run that is still in progress (or reconnecting) catches up on everything that already happened.
 
 ### 6. Track Latency Trends and Analytics
 Analyze historical performance runs to catch regressions:
@@ -338,10 +339,12 @@ Fortest is a local tool and can send requests to any address, including `localho
 
 There is no authentication. Do not expose Fortest on a public or shared network.
 
-### 3. Run History Capping and Redis Memory Management
-To keep the Redis database footprint small, Fortest enforces a strict **50-run capped retention policy** per Action Group:
-- When a new execution finishes, Fortest checks the total run count for that group.
-- If it exceeds 50, the oldest run records (including full HTTP headers, request and response bodies) are automatically deleted.
+### 3. Run Storage, Retention and Cancellation
+Each run is stored as a small summary (status, configuration, metrics) plus a list that every step result is appended to as it finishes, so long runs never rewrite what they've already stored.
+- **History cap**: Fortest keeps the **50 most recent runs** per Action Group; older runs and their results are deleted automatically.
+- **Response bodies**: single runs keep every request and response body. Multi-iteration (load) runs keep bodies only for **iteration 1 and for failed steps**; other results keep status, timing, headers, assertions and extractions. Stored bodies are capped at 1 MB each.
+- **Stopping a run**: the **Stop** button (run dashboard or the Runs dropdown) cancels the run between steps; it is saved with status `cancelled` and its partial results. API: `POST /api/runs/:id/cancel`.
+- **Restarts**: runs that were in progress when the server stopped are marked `failed` ("Interrupted") on the next start.
 
 ### 4. Space-Safe Timeline Identifiers
 Action Group step names can safely contain spaces:

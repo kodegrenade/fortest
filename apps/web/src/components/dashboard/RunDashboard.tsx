@@ -3,10 +3,10 @@ import { useExecutionStore } from '@/stores/executionStore';
 import { StepWaterfall } from './StepWaterfall';
 import { StepResultCard } from './StepResultCard';
 import { LayersIcon, XIcon, ClockIcon, CheckCircleIcon } from '@/components/common/Icons';
-import { isExecuting, isFailedResult, toneBadge } from '@/utils/results';
+import { isExecuting, isFailedResult, runTone, toneBadge } from '@/utils/results';
 
 export function RunDashboard() {
-  const { activeRun, selectedStepId, selectedIteration, isRunning, error, clearRun } = useExecutionStore();
+  const { activeRun, selectedStepId, selectedIteration, isRunning, error, clearRun, cancelRun } = useExecutionStore();
   const [secondsElapsed, setSecondsElapsed] = useState(0);
 
   // Timer for active runs
@@ -78,7 +78,7 @@ export function RunDashboard() {
                 style={{
                   fontSize: '10px',
                   padding: '2px 6px',
-                  ...toneBadge(activeRun.status === 'completed' ? 'passed' : activeRun.status === 'running' ? 'running' : 'failed', 15),
+                  ...toneBadge(runTone(activeRun.status), 15),
                   border: 'none',
                 }}
               >
@@ -87,17 +87,29 @@ export function RunDashboard() {
             </h2>
             <span style={{ fontSize: '11px', color: 'var(--text-tertiary)' }}>
               Run ID: {activeRun.id}
+              {activeRun.error && ` · ${activeRun.error}`}
             </span>
           </div>
         </div>
 
-        <button
-          className="btn btn--ghost"
-          style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px' }}
-          onClick={clearRun}
-        >
-          <XIcon size={14} /> Close Dashboard
-        </button>
+        <div style={{ display: 'flex', gap: '8px' }}>
+          {activeRun.status === 'running' && (
+            <button
+              className="btn btn--ghost"
+              style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', color: 'var(--status-5xx)' }}
+              onClick={() => cancelRun(activeRun.id)}
+            >
+              Stop Run
+            </button>
+          )}
+          <button
+            className="btn btn--ghost"
+            style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px' }}
+            onClick={clearRun}
+          >
+            <XIcon size={14} /> Close Dashboard
+          </button>
+        </div>
       </div>
 
       {/* Metrics Row */}
