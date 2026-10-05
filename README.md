@@ -39,6 +39,8 @@ Analyze historical performance runs to catch regressions:
 - Maintain a local history of up to 50 previous execution runs per Action Group.
 - Review automatically generated latency analytics (minimum, maximum, average) and response percentiles (`p50`, `p95`, `p99`).
 - Interactive SVG trend lines map latencies chronologically across test runs.
+- **Slower-than-usual runs are flagged**: when a run's p95 is more than 50% *and* at least 50 ms above the median p95 of the group's last 10 comparable runs (completed, same environment, same run type: single vs load), the run dashboard and history show a ⚠ badge (e.g. "p95 742ms vs usual 310ms (+139%)") and a warning toast appears. A group needs 3 comparable runs before it's judged.
+- **In CI**, where there's no run history, set a latency budget instead: `fortest run … --max-p95 500` fails any action group whose p95 is over 500 ms (per-step limits are `response_time` assertions).
 
 ### 7. Export, Import, and Share Test Suites
 Collaborate on test suites by exporting entire buckets (including environment variables, action groups, steps, assertions, and data stores) as JSON or YAML files. Importing files automatically regenerates unique identifiers to prevent collisions with existing workspaces. You can also import existing **Postman Collections (v2.0 & v2.1)** directly to instantly bootstrap your test buckets, mapping folders, requests, variables, and auth configurations into Fortest schemas.
@@ -464,13 +466,14 @@ pnpm fortest run tests/shop-api.yaml --env staging          # pick an environmen
 pnpm fortest run tests/shop-api.yaml --var token=$API_TOKEN  # set/override variables, e.g. secrets (redacted in the output)
 pnpm fortest run tests/shop-api.yaml --junit report.xml      # JUnit XML for CI test summaries
 pnpm fortest run tests/shop-api.yaml --iterations 50 --concurrency 10   # load run
+pnpm fortest run tests/shop-api.yaml --max-p95 500           # latency budget: fail a group whose p95 > 500 ms
 pnpm fortest --help
 ```
 
 | Exit code | Meaning |
 | :--- | :--- |
 | `0` | Every step and assertion passed |
-| `1` | A step failed (network error, HTTP 4xx/5xx, or a failed assertion) |
+| `1` | A step failed (network error, HTTP 4xx/5xx, or a failed assertion), or a group went over `--max-p95` |
 | `2` | Bad input: unreadable or invalid file, unknown option, unknown `--group` or `--env` |
 | `130` | Interrupted with Ctrl+C (the JUnit report is still written) |
 

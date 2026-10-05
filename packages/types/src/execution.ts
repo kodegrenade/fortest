@@ -91,6 +91,10 @@ export const ExecutionRunSchema = z.object({
   duration: z.number().min(0).optional(), // total ms
   error: z.string().optional(), // why a run failed or stopped early
   environmentName: z.string().optional(), // the environment the run used, if any
+  // Set when this run's p95 was well above recent comparable runs (see detectRegression).
+  regression: z
+    .object({ p95: z.number(), baselineP95: z.number(), comparedRuns: z.number().int() })
+    .optional(),
   createdAt: z.string().datetime(),
 });
 export type ExecutionRun = z.infer<typeof ExecutionRunSchema>;

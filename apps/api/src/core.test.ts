@@ -6,6 +6,7 @@ import type { AddressInfo } from 'node:net';
 import { randomUUID } from 'node:crypto';
 import {
   applyRunEvent,
+  detectRegression,
   interpolate,
   isFailedResult,
   parseCsv,
@@ -20,6 +21,7 @@ import {
   type Assertion,
   type ExecutionRun,
   type RunEvent,
+  type RunSummary,
   type Step,
   type BucketVariable,
   type ProxyResponse,
@@ -1350,4 +1352,142 @@ test('retry: Stop interrupts the wait between attempts', async (t) => {
       retry: { maxAttempts: 101, intervalMs: 0 },
     }),
   );
+});
+
+// --- Latency regressions (app) and budgets (CLI) ---
+
+/** A completed run summary with the given p95, for building history. */
+const pastRun = (p95: number, extra: Partial<RunSummary> = {}): RunSummary =>
+  ({
+    id: randomUUID(),
+    bucketId: randomUUID(),
+    actionGroupId: randomUUID(),
+    actionGroupName: 'g',
+    status: 'completed',
+    createdAt: new Date().toISOString(),
+    config: resolveConfig(),
+    metrics: { ...computeMetrics([], 0), totalRequests: 1, p95 },
+    ...extra,
+  }) as RunSummary;
+
+test('detectRegression: >50% and >=50 ms slower than the median of recent comparable runs', () => {
+  const history = [100, 110, 90, 105, 95].map((p95) => pastRun(p95)); // median 100
+  assert.deepEqual(detectRegression(pastRun(160), history), {
+    p95: 160,
+    baselineP95: 100,
+    comparedRuns: 5,
+  });
+  assert.equal(
+    detectRegression(pastRun(150), history),
+    undefined,
+    'exactly +50% is not a regression',
+  );
+  assert.equal(
+    detectRegression(
+      pastRun(9),
+      [4, 4, 4].map((p) => pastRun(p)),
+    ),
+    undefined,
+    '+125% but only 5 ms',
+  );
+  assert.equal(
+    detectRegression(pastRun(500), history.slice(0, 2)),
+    undefined,
+    'needs 3 comparable runs',
+  );
+
+  const mixed = [
+    ...history.slice(0, 3).map((r) => ({ ...r, environmentName: 'prod' })),
+    ...[1, 1, 1].map((p) => pastRun(p, { status: 'failed' })),
+    ...[1, 1, 1].map((p) => pastRun(p, { config: resolveConfig({ iterations: 5 }) })), // load runs
+  ];
+  assert.equal(
+    detectRegression(pastRun(500), mixed),
+    undefined,
+    'only same environment, completed, same run type',
+  );
+  assert.equal(
+    detectRegression(pastRun(500, { environmentName: 'prod' }), mixed)?.baselineP95,
+    100,
+  );
+  // 10 recent runs at 1000 ms, 20 older ones at 10 ms: the window keeps the baseline at 1000.
+  assert.equal(
+    detectRegression(
+      pastRun(1600),
+      [...Array(10).fill(1000), ...Array(20).fill(10)].map((p) => pastRun(p)),
+    )?.baselineP95,
+    1000,
+    'only the 10 most recent count',
+  );
+  assert.equal(
+    detectRegression(
+      pastRun(300),
+      [10, 20, 30, 40].map((p) => pastRun(p)),
+    )?.baselineP95,
+    25,
+    'even count: mean of the middle two',
+  );
+});
+
+test('runs are flagged when much slower than recent comparable runs', async (t) => {
+  const baseUrl = await startTarget(t);
+  const { bucketId, groupId } = await saveFlow(baseUrl, ['/slow']); // ~200 ms
+  const adapter = getStorageAdapter();
+  for (const [i, past] of [10, 12, 11, 9]
+    .map((p) => pastRun(p, { actionGroupId: groupId }))
+    .entries()) {
+    await adapter.set(`run:${past.id}`, JSON.stringify(past));
+    await adapter.zadd(`group:${groupId}:runs`, Date.now() - 10_000 + i, past.id);
+  }
+
+  const runId = randomUUID();
+  await runGroup(bucketId, groupId, runId, {}, () => {});
+  const regression = (await getRunSummary(runId))?.regression;
+  assert.ok(
+    regression && regression.p95 >= 150 && regression.baselineP95 === 10.5,
+    JSON.stringify(regression),
+  );
+
+  // The same history doesn't count against a run in another environment.
+  const bucket = (await getBucketById(bucketId))!;
+  const env = { id: randomUUID(), name: 'staging', variables: [] };
+  await saveBucket({ ...bucket, environments: [env], activeEnvironmentId: env.id });
+  const stagingRun = randomUUID();
+  await runGroup(bucketId, groupId, stagingRun, {}, () => {});
+  assert.equal((await getRunSummary(stagingRun))?.regression, undefined);
+});
+
+test('CLI: --max-p95 fails an action group over its latency budget, and says so in JUnit', async (t) => {
+  const baseUrl = await startTarget(t);
+  const dir = mkdtempSync(join(tmpdir(), 'fortest-budget-'));
+  t.after(() => rmSync(dir, { recursive: true }));
+  const file = join(dir, 'b.yaml');
+  writeFileSync(
+    file,
+    yaml.stringify({
+      name: 'Budget',
+      baseUrl,
+      actionGroups: [{ name: 'g', steps: [{ name: 'slow', path: '/slow' }] }],
+    }),
+  );
+
+  const report = join(dir, 'junit.xml');
+  const over = await fortest('run', file, '--max-p95', '100', '--junit', report);
+  assert.equal(over.code, 1);
+  assert.match(over.out, /p95 2\d\dms is over the 100ms budget/);
+  assert.match(
+    readFileSync(report, 'utf8'),
+    /name="latency budget \(p95 ≤ 100ms\)" time="0"><failure message="p95 2\d\dms is over the 100ms budget"\/>/,
+  );
+  assert.match(readFileSync(report, 'utf8'), /tests="2" failures="1"/);
+
+  const within = await fortest('run', file, '--max-p95', '5000', '--junit', report);
+  assert.equal(within.code, 0, within.out);
+  assert.match(
+    readFileSync(report, 'utf8'),
+    /name="latency budget \(p95 ≤ 5000ms\)" time="0"><\/testcase>/,
+  );
+
+  assert.equal((await fortest('run', file, '--max-p95', 'fast')).code, 2);
+  assert.equal((await fortest('run', file, '--max-p95', '0')).code, 2);
 });

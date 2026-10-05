@@ -1,7 +1,7 @@
 import { getBucketById } from './bucketService';
 import { getStorageAdapter } from './storage';
 import { executeGroup, resolveConfig } from './executor';
-import { activeEnvironment } from '@fortest/utils';
+import { activeEnvironment, detectRegression } from '@fortest/utils';
 import type {
   StepResult,
   ExecutionRun,
@@ -125,6 +125,8 @@ export async function runGroup(
     run.status = outcome.status;
     run.metrics = outcome.metrics;
     if (outcome.status === 'cancelled') run.error = 'Cancelled by user';
+    // Only full runs are judged: a cancelled run's p95 says little.
+    else run.regression = detectRegression(run, await getGroupRuns(groupId));
   } catch (err) {
     console.error(`Execution failed for run ${runId}`, err);
     run.status = 'failed';

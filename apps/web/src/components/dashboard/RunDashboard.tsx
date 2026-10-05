@@ -3,7 +3,7 @@ import { useExecutionStore } from '@/stores/executionStore';
 import { StepWaterfall } from './StepWaterfall';
 import { StepResultCard } from './StepResultCard';
 import { LayersIcon, XIcon, ClockIcon, CheckCircleIcon } from '@/components/common/Icons';
-import { isExecuting, isFailedResult, runTone, toneBadge } from '@/utils/results';
+import { isExecuting, isFailedResult, regressionBadgeStyle, regressionLabel, runTone, toneBadge } from '@/utils/results';
 
 export function RunDashboard() {
   const { activeRun, selectedStepId, selectedIteration, isRunning, error, clearRun, cancelRun } = useExecutionStore();
@@ -90,6 +90,13 @@ export function RunDashboard() {
               {activeRun.environmentName && ` · env: ${activeRun.environmentName}`}
               {activeRun.error && ` · ${activeRun.error}`}
             </span>
+            {activeRun.regression && (
+              <div style={{ marginTop: '4px' }}>
+                <span style={regressionBadgeStyle} title={`Compared with the median of ${activeRun.regression.comparedRuns} recent runs (same environment and run type)`}>
+                  ⚠ Slower than usual: {regressionLabel(activeRun.regression)}
+                </span>
+              </div>
+            )}
           </div>
         </div>
 

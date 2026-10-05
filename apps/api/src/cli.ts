@@ -28,6 +28,7 @@ Options for run:
   --iterations <n>         Iterations per action group (default 1; more makes it a load run)
   --concurrency <n>        Iterations run in parallel (default 1)
   --delay <ms>             Delay between steps (default 0)
+  --max-p95 <ms>           Latency budget: fail an action group whose p95 is above this
   --junit <path>           Also write a JUnit XML report (for CI test summaries)
   -h, --help               Show this help`;
 
@@ -130,10 +131,10 @@ const xml = (s: string) =>
     (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&apos;' })[c]!,
   );
 
-function junitReport(runs: GroupRun[]): string {
+function junitReport(runs: GroupRun[], maxP95: number | undefined): string {
   let tests = 0;
   let failures = 0;
-  const suites = runs.map(({ bucket, group, results, seconds }) => {
+  const suites = runs.map(({ bucket, group, results, seconds, outcome }) => {
     const steps = [...group.steps].sort((a, b) => a.order - b.order);
     const cases = steps.map((step) => {
       const own = results.filter((r) => r.stepId === step.id);
@@ -159,9 +160,21 @@ function junitReport(runs: GroupRun[]): string {
       }
       return `    <testcase classname="${xml(`${bucket.name}.${group.name}`)}" name="${xml(step.name)}" time="${avg.toFixed(3)}">${body}</testcase>`;
     });
+    if (maxP95 !== undefined) {
+      // The latency budget shows up as its own test, so CI says why the group failed.
+      tests++;
+      const p95 = outcome.metrics.p95;
+      const over = p95 > maxP95;
+      if (over) failures++;
+      cases.push(
+        `    <testcase classname="${xml(`${bucket.name}.${group.name}`)}" name="latency budget (p95 ≤ ${maxP95}ms)" time="0">${
+          over ? `<failure message="${xml(`p95 ${p95}ms is over the ${maxP95}ms budget`)}"/>` : ''
+        }</testcase>`,
+      );
+    }
     const suiteFailures = cases.filter((c) => c.includes('<failure')).length;
     return [
-      `  <testsuite name="${xml(`${bucket.name} / ${group.name}`)}" tests="${steps.length}" failures="${suiteFailures}" time="${seconds.toFixed(3)}">`,
+      `  <testsuite name="${xml(`${bucket.name} / ${group.name}`)}" tests="${cases.length}" failures="${suiteFailures}" time="${seconds.toFixed(3)}">`,
       ...cases,
       '  </testsuite>',
     ].join('\n');
@@ -189,6 +202,7 @@ const parseCommandLine = (args: string[]) =>
       concurrency: { type: 'string' },
       delay: { type: 'string' },
       junit: { type: 'string' },
+      'max-p95': { type: 'string' },
       help: { type: 'boolean', short: 'h' },
     },
   });
@@ -221,6 +235,13 @@ async function run(args: string[]): Promise<number> {
     );
   }
   const config = resolveConfig(parsedConfig.data);
+
+  const maxP95 = values['max-p95'] === undefined ? undefined : Number(values['max-p95']);
+  if (maxP95 !== undefined && !(maxP95 > 0)) {
+    throw new UsageError(
+      `--max-p95 expects a number of milliseconds above 0, got "${values['max-p95']}"`,
+    );
+  }
 
   const overrides = (values.var ?? []).map((pair) => {
     const eq = pair.indexOf('=');
@@ -287,6 +308,9 @@ async function run(args: string[]): Promise<number> {
           dim(` · ${totalRequests} requests · avg ${Math.round(avgLatency)}ms · p95 ${p95}ms`) +
           (unreached > 0 ? yellow(` · ${unreached} step(s) not reached`) : ''),
       );
+      if (maxP95 !== undefined && p95 > maxP95) {
+        console.log(`  ${red('✗')} ${red(`p95 ${p95}ms is over the ${maxP95}ms budget`)}`);
+      }
     }
     if (!groups.length)
       console.warn(
@@ -297,7 +321,7 @@ async function run(args: string[]): Promise<number> {
   }
 
   if (values.junit) {
-    writeFileSync(fromCwd(values.junit), junitReport(runs));
+    writeFileSync(fromCwd(values.junit), junitReport(runs, maxP95));
     console.log(dim(`\nJUnit report written to ${values.junit}`));
   }
 
@@ -306,7 +330,9 @@ async function run(args: string[]): Promise<number> {
     return 130;
   }
   if (!runs.length) throw new UsageError('Nothing to run.');
-  const failedGroups = runs.filter((r) => r.outcome.metrics.failed > 0).length;
+  const failedGroups = runs.filter(
+    (r) => r.outcome.metrics.failed > 0 || (maxP95 !== undefined && r.outcome.metrics.p95 > maxP95),
+  ).length;
   console.log(
     failedGroups
       ? red(`\n✗ ${failedGroups} of ${runs.length} action group(s) failed`)

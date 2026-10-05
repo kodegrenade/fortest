@@ -1,5 +1,5 @@
 import type { CSSProperties } from 'react';
-import type { StepResult } from '@fortest/types';
+import type { RunSummary, StepResult } from '@fortest/types';
 
 /** A live-run placeholder for a step that hasn't responded yet. */
 export const isExecuting = (r: StepResult) => r.statusText === 'Executing...';
@@ -20,7 +20,13 @@ export const TONE_COLOR: Record<Tone, string> = {
 
 /** Tone for a run or background-job status. */
 export const runTone = (status: string): Tone =>
-  status === 'completed' ? 'passed' : status === 'failed' ? 'failed' : status === 'running' ? 'running' : 'pending';
+  status === 'completed'
+    ? 'passed'
+    : status === 'failed'
+      ? 'failed'
+      : status === 'running'
+        ? 'running'
+        : 'pending';
 
 /** A theme color at the given opacity (follows the active color preset). */
 export const tint = (color: string, percent: number) =>
@@ -44,7 +50,25 @@ export function prettyJson(text: string): string {
 
 /** " · 3 attempts in 4.1s" for retrying steps, "" otherwise. */
 export const attemptsLabel = (r: StepResult) =>
-  r.attempts ? ` · ${r.attempts} attempt${r.attempts === 1 ? '' : 's'} in ${((r.elapsedMs ?? 0) / 1000).toFixed(1)}s` : '';
+  r.attempts
+    ? ` · ${r.attempts} attempt${r.attempts === 1 ? '' : 's'} in ${((r.elapsedMs ?? 0) / 1000).toFixed(1)}s`
+    : '';
+
+/** "p95 742ms vs usual 310ms (+139%)" for a run flagged as slower than usual. */
+export const regressionLabel = (r: NonNullable<RunSummary['regression']>) =>
+  `p95 ${r.p95}ms vs usual ${Math.round(r.baselineP95)}ms (+${Math.round((r.p95 / r.baselineP95 - 1) * 100)}%)`;
+
+/** Amber "slower than usual" badge, with the numbers in its tooltip. */
+export const regressionBadgeStyle: CSSProperties = {
+  color: 'var(--status-3xx)',
+  backgroundColor: tint('var(--status-3xx)', 12),
+  border: `1px solid ${tint('var(--status-3xx)', 25)}`,
+  fontSize: '10px',
+  padding: '2px 6px',
+  borderRadius: '4px',
+  fontWeight: 600,
+  whiteSpace: 'nowrap',
+};
 
 export function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;

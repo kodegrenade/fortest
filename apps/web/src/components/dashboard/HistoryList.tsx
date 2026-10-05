@@ -1,7 +1,7 @@
 import { useEffect } from 'react';
 import { useExecutionStore } from '@/stores/executionStore';
 import { ClockIcon, CheckCircleIcon, XIcon } from '@/components/common/Icons';
-import { runTone, toneBadge } from '@/utils/results';
+import { regressionBadgeStyle, regressionLabel, runTone, toneBadge } from '@/utils/results';
 
 const dateFormat = new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' });
 const relativeFormat = new Intl.RelativeTimeFormat(undefined, { numeric: 'auto' });
@@ -128,6 +128,11 @@ export function HistoryList({ groupId }: HistoryListProps) {
                       )}
                       {run.status === 'running' ? 'Running' : run.status === 'cancelled' ? 'Cancelled' : isSuccess ? 'Passed' : 'Failed'}
                     </span>
+                    {run.regression && (
+                      <span style={{ ...regressionBadgeStyle, display: 'inline-block', marginTop: '4px' }} title={regressionLabel(run.regression)}>
+                        ⚠ Slower
+                      </span>
+                    )}
                   </td>
                   <td style={{ padding: '14px 16px', color: 'var(--text-secondary)' }}>
                     {config.mode === 'manual' ? (

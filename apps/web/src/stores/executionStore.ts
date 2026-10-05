@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import type { ExecutionRun, ExecutionConfig, RunEvent, RunSummary } from '@fortest/types';
 import { applyRunEvent } from '@fortest/utils';
 import { useToastStore } from './toastStore';
+import { regressionLabel } from '@/utils/results';
 
 export interface BackgroundJob {
   runId: string;
@@ -102,6 +103,11 @@ function notifyFinished(job: BackgroundJob, run: RunSummary) {
             ];
   showNativeNotification(title, message);
   useToastStore.getState().addToast(message, type);
+  if (run.regression) {
+    useToastStore
+      .getState()
+      .addToast(`"${job.actionGroupName}" was slower than usual: ${regressionLabel(run.regression)}`, 'warning');
+  }
 }
 
 /** A background job's progress after an event. */
