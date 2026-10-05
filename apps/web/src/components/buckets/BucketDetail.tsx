@@ -38,7 +38,9 @@ export function BucketDetail() {
   const [variables, setVariables] = useState<BucketVariable[]>([]);
   const [isConfigExpanded, setIsConfigExpanded] = useState(true);
 
-  // Sync state with active bucket
+  // Sync state with active bucket. Keyed on the config fields only: other store updates
+  // (e.g. adding an action group) must not wipe unsaved edits to the form.
+  const configKey = bucket && JSON.stringify([bucket.id, bucket.name, bucket.baseUrl, bucket.auth, bucket.variables]);
   useEffect(() => {
     if (bucket) {
       setName(bucket.name);
@@ -46,7 +48,7 @@ export function BucketDetail() {
       setAuth(bucket.auth || { type: 'none' });
       setVariables(bucket.variables || []);
     }
-  }, [bucket, activeBucketId]);
+  }, [configKey]);
 
   // Dialog states for action group management
   const [dialogState, setDialogState] = useState<{
@@ -447,7 +449,7 @@ export function BucketDetail() {
           </div>
         ) : (
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '16px' }}>
-            {bucket.actionGroups
+            {[...bucket.actionGroups]
               .sort((a, b) => a.order - b.order)
               .map((group) => (
                 <div

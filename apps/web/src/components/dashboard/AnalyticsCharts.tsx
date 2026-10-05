@@ -245,7 +245,7 @@ export function AnalyticsCharts({ groupId }: AnalyticsChartsProps) {
                 left: `${(tooltipPos.x / 580) * 100}%`,
                 top: `${(tooltipPos.y / 200) * 100}%`,
                 transform: 'translate(-50%, -100%) translateY(-10px)',
-                backgroundColor: 'rgba(30, 31, 41, 0.85)',
+                backgroundColor: 'var(--bg-elevated)',
                 border: '1px solid var(--border-primary)',
                 borderRadius: 'var(--radius-md)',
                 padding: '8px 12px',
@@ -278,7 +278,7 @@ export function AnalyticsCharts({ groupId }: AnalyticsChartsProps) {
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between', gap: '16px' }}>
                 <span style={{ color: 'var(--text-secondary)' }}>Average:</span>
-                <span style={{ fontWeight: 500 }}>{chartRuns[hoveredRunIndex].metrics?.avgLatency || 0} ms</span>
+                <span style={{ fontWeight: 500 }}>{Math.round(chartRuns[hoveredRunIndex].metrics?.avgLatency || 0)} ms</span>
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between', gap: '16px' }}>
                 <span style={{ color: 'var(--text-secondary)' }}>P95 Latency:</span>

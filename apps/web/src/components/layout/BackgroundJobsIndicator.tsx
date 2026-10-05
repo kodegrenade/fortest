@@ -11,7 +11,7 @@ export function BackgroundJobsIndicator() {
 
   const activeJobs = backgroundJobs.filter((j) => j.status === 'running');
 
-  // Close dropdown on click outside & lock background scroll
+  // Close dropdown on click outside
   useEffect(() => {
     const handleOutsideClick = (e: MouseEvent) => {
       if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
@@ -20,13 +20,9 @@ export function BackgroundJobsIndicator() {
     };
     if (isOpen) {
       document.addEventListener('mousedown', handleOutsideClick);
-      document.body.style.overflow = 'hidden';
-    } else {
-      document.body.style.overflow = '';
     }
     return () => {
       document.removeEventListener('mousedown', handleOutsideClick);
-      document.body.style.overflow = '';
     };
   }, [isOpen]);
 
@@ -99,7 +95,7 @@ export function BackgroundJobsIndicator() {
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: '1px solid var(--border-primary)', paddingBottom: '8px' }}>
             <span style={{ fontWeight: 600, fontSize: '13px', color: 'var(--text-primary)' }}>Background Runs</span>
             {activeJobs.length > 0 && (
-              <span className="badge" style={{ backgroundColor: 'var(--accent-primary)15', color: 'var(--accent-primary)', fontSize: '10px' }}>
+              <span className="badge" style={{ backgroundColor: 'color-mix(in srgb, var(--accent-primary) 8%, transparent)', color: 'var(--accent-primary)', fontSize: '10px' }}>
                 {activeJobs.length} active
               </span>
             )}

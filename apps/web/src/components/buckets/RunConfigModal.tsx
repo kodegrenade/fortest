@@ -184,7 +184,7 @@ export function RunConfigModal({ isOpen, bucketId, groupId, onClose }: RunConfig
 
             {/* Concurrency */}
             <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-              <label style={{ fontSize: '11px', fontWeight: 600, color: isRemovingAttachedStore || iterations === 1 ? 'var(--text-tertiary)' : 'var(--text-secondary)', textTransform: 'uppercase' }}>
+              <label style={{ fontSize: '11px', fontWeight: 600, color: iterations === 1 ? 'var(--text-tertiary)' : 'var(--text-secondary)', textTransform: 'uppercase' }}>
                 Concurrency (Parallel Workers)
               </label>
               <input
@@ -291,7 +291,7 @@ export function RunConfigModal({ isOpen, bucketId, groupId, onClose }: RunConfig
                     </button>
                   </div>
                 ) : uploadedFile ? (
-                  <div style={{ padding: '12px', borderRadius: 'var(--radius-md)', border: '1px solid var(--status-2xx)30', backgroundColor: 'var(--bg-secondary)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <div style={{ padding: '12px', borderRadius: 'var(--radius-md)', border: '1px solid color-mix(in srgb, var(--status-2xx) 19%, transparent)', backgroundColor: 'var(--bg-secondary)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                     <div>
                       <div style={{ fontSize: '12px', fontWeight: 600, color: 'var(--status-2xx)', wordBreak: 'break-all', paddingRight: '12px' }}>
                         ✓ {uploadedFile.name}

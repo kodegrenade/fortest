@@ -65,9 +65,9 @@ export function StepResultCard({ result }: StepResultCardProps) {
           <span
             className="badge"
             style={{
-              backgroundColor: `${getStatusColor(result.status, result.statusText)}15`,
+              backgroundColor: `color-mix(in srgb, ${getStatusColor(result.status, result.statusText)} 8%, transparent)`,
               color: getStatusColor(result.status, result.statusText),
-              border: `1px solid ${getStatusColor(result.status, result.statusText)}30`,
+              border: `1px solid color-mix(in srgb, ${getStatusColor(result.status, result.statusText)} 19%, transparent)`,
               fontSize: '12px',
               padding: '4px 8px',
             }}

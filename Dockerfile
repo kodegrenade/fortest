@@ -1,7 +1,6 @@
 # Stage 1: Build the React client assets
 FROM node:20-alpine AS builder
-RUN npm install -g pnpm@8.15.7
-RUN pnpm config set manage-package-manager-versions false
+RUN corepack enable
 WORKDIR /app
 
 # Copy root configs
@@ -15,8 +14,7 @@ COPY apps/web/package.json ./apps/web/
 
 RUN pnpm install --frozen-lockfile
 
-# Copy source code (cache-busted to ensure changes are copied)
-RUN echo "builder-cb-v3"
+# Copy source code
 COPY packages/ ./packages/
 COPY apps/ ./apps/
 
@@ -25,8 +23,7 @@ RUN pnpm --filter @fortest/web build
 
 # Stage 2: Runner image
 FROM node:20-alpine AS runner
-RUN npm install -g pnpm@8.15.7
-RUN pnpm config set manage-package-manager-versions false
+RUN corepack enable
 WORKDIR /app
 
 # Copy workspace root manifests
@@ -36,8 +33,7 @@ COPY package.json pnpm-lock.yaml pnpm-workspace.yaml turbo.json tsconfig.base.js
 COPY packages/types ./packages/types
 COPY packages/utils ./packages/utils
 
-# Copy API backend (cache-busted to ensure package.json dependencies update)
-RUN echo "runner-cb-v3"
+# Copy API backend
 COPY apps/api ./apps/api
 
 # Copy web manifest and built dist assets

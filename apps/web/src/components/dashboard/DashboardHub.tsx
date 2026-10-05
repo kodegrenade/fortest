@@ -182,7 +182,9 @@ export function DashboardHub() {
 
   const validateAndSetFile = (file: File) => {
     const ext = file.name.split('.').pop()?.toLowerCase();
-    if (ext === 'json' || ext === 'yaml' || ext === 'yml') {
+    if (file.size > 10 * 1024 * 1024) {
+      addToast('File is too large. The maximum import size is 10MB.', 'error');
+    } else if (ext === 'json' || ext === 'yaml' || ext === 'yml') {
       setSelectedFile(file);
     } else {
       addToast('Unsupported file type. Please upload a .json, .yaml, or .yml file.', 'error');
@@ -211,6 +213,8 @@ export function DashboardHub() {
     if (file) {
       validateAndSetFile(file);
     }
+    // Reset so choosing the same file again still fires onChange.
+    e.target.value = '';
   };
 
   const handleDragEnter = (e: React.DragEvent) => {

@@ -1,7 +1,7 @@
 import crypto from 'crypto';
 import { getBucketById } from './bucketService';
 import { getStorageAdapter } from './storage';
-import { interpolate } from '@fortest/utils';
+import { interpolate, parseFormPairs } from '@fortest/utils';
 import { extractValue } from './extractionService';
 import { evaluateAssertions } from './assertionService';
 import type {
@@ -203,15 +203,36 @@ export async function runGroup(
         const authHeaders = resolveAuthHeaders(activeAuth, iterVariables);
         Object.assign(resolvedHeaders, authHeaders);
 
+        // Header names are case-insensitive; users type them in any case.
+        const contentTypeKeys = Object.keys(resolvedHeaders).filter((k) => k.toLowerCase() === 'content-type');
+
         // Default JSON content type if JSON body
-        if (step.body && step.body.type === 'json' && !resolvedHeaders['content-type']) {
+        if (step.body && step.body.type === 'json' && contentTypeKeys.length === 0) {
           resolvedHeaders['content-type'] = 'application/json';
         }
 
         // 3. Resolve Body Content
+        // Form bodies are interpolated per field and then encoded, so variable values are escaped correctly.
         finalBody = undefined;
-        if (step.body && step.body.type !== 'none') {
-          finalBody = interpolate(step.body.content, iterVariables).resolved;
+        let requestBody: string | URLSearchParams | FormData | undefined;
+        if (step.body?.type === 'form-data' || step.body?.type === 'x-www-form-urlencoded') {
+          const pairs = parseFormPairs(step.body.content)
+            .filter((p) => p.enabled && p.key.trim() !== '')
+            .map((p): [string, string] => [
+              interpolate(p.key, iterVariables).resolved,
+              interpolate(p.value, iterVariables).resolved,
+            ]);
+          finalBody = new URLSearchParams(pairs).toString();
+          if (step.body.type === 'form-data') {
+            requestBody = new FormData();
+            for (const [k, v] of pairs) requestBody.append(k, v);
+            // fetch must set multipart/form-data itself, with the boundary.
+            for (const k of contentTypeKeys) delete resolvedHeaders[k];
+          } else {
+            requestBody = new URLSearchParams(pairs);
+          }
+        } else if (step.body && step.body.type !== 'none') {
+          finalBody = requestBody = interpolate(step.body.content, iterVariables).resolved;
         }
 
         // 4. Execute HTTP Request
@@ -223,7 +244,7 @@ export async function runGroup(
           fetchResponse = await fetch(finalUrl, {
             method: step.method,
             headers: resolvedHeaders,
-            body: finalBody ?? undefined,
+            body: requestBody,
             signal: controller.signal,
             redirect: 'follow',
           });

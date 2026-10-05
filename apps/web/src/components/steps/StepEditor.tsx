@@ -3,6 +3,7 @@ import { useBucketStore } from '@/stores/bucketStore';
 import { useToastStore } from '@/stores/toastStore';
 import { TrashIcon, PlusIcon } from '@/components/common/Icons';
 import type { KeyValuePair, RequestBody, AuthConfig, ExtractionRule, Assertion } from '@fortest/types';
+import { parseFormPairs } from '@fortest/utils';
 import './Steps.css';
 import { VariableInput } from './VariableInput';
 
@@ -48,52 +49,14 @@ const POPULAR_HEADER_VALUES = [
   'UTF-8',
 ];
 
-function parseBodyContentToKeyValues(type: 'form-data' | 'x-www-form-urlencoded', content: string): KeyValuePair[] {
-  if (!content) return [];
-  if (type === 'form-data') {
-    try {
-      const parsed = JSON.parse(content);
-      if (Array.isArray(parsed)) {
-        return parsed.map((item: any) => ({
-          id: item.id || crypto.randomUUID(),
-          key: item.key || '',
-          value: item.value || '',
-          enabled: item.enabled !== undefined ? item.enabled : true,
-        }));
-      }
-    } catch {
-      // Fallback if content was raw text before
-    }
-  }
-
-  // Fallback or x-www-form-urlencoded parsing (query string style)
-  const pairs: KeyValuePair[] = [];
-  const parts = content.split('&');
-  for (const part of parts) {
-    if (!part) continue;
-    const eqIdx = part.indexOf('=');
-    if (eqIdx === -1) {
-      pairs.push({ id: crypto.randomUUID(), key: decodeURIComponent(part), value: '', enabled: true });
-    } else {
-      pairs.push({
-        id: crypto.randomUUID(),
-        key: decodeURIComponent(part.substring(0, eqIdx)),
-        value: decodeURIComponent(part.substring(eqIdx + 1)),
-        enabled: true,
-      });
-    }
-  }
-  return pairs;
+// Both form body types are stored as a JSON array of pairs (disabled rows survive a reload);
+// parseFormPairs also accepts legacy query-string content.
+function parseBodyContentToKeyValues(content: string): KeyValuePair[] {
+  return content ? parseFormPairs(content) : [];
 }
 
-function serializeKeyValuesToBodyContent(type: 'form-data' | 'x-www-form-urlencoded', pairs: KeyValuePair[]): string {
-  if (type === 'form-data') {
-    return JSON.stringify(pairs);
-  }
-  return pairs
-    .filter((p) => p.enabled && p.key.trim() !== '')
-    .map((p) => `${encodeURIComponent(p.key)}=${encodeURIComponent(p.value)}`)
-    .join('&');
+function serializeKeyValuesToBodyContent(pairs: KeyValuePair[]): string {
+  return JSON.stringify(pairs);
 }
 
 function validateXml(content: string): string | null {
@@ -149,7 +112,7 @@ export function StepEditor({ bucketId, groupId, stepId }: StepEditorProps) {
       const stepBody = step.body || { type: 'none', content: '' };
       setBody(stepBody);
       if (stepBody.type === 'form-data' || stepBody.type === 'x-www-form-urlencoded') {
-        setBodyKeyValues(parseBodyContentToKeyValues(stepBody.type, stepBody.content));
+        setBodyKeyValues(parseBodyContentToKeyValues(stepBody.content));
       } else {
         setBodyKeyValues([]);
       }
@@ -318,7 +281,7 @@ export function StepEditor({ bucketId, groupId, stepId }: StepEditorProps) {
   const handleAddBodyKeyValue = () => {
     const updated = [...bodyKeyValues, { id: crypto.randomUUID(), key: '', value: '', enabled: true }];
     setBodyKeyValues(updated);
-    const serialized = serializeKeyValuesToBodyContent(body.type as any, updated);
+    const serialized = serializeKeyValuesToBodyContent(updated);
     const nextBody = { ...body, content: serialized };
     setBody(nextBody);
     saveStepData({ body: nextBody });
@@ -327,7 +290,7 @@ export function StepEditor({ bucketId, groupId, stepId }: StepEditorProps) {
   const handleBodyKeyValueChange = (id: string, field: keyof KeyValuePair, val: any) => {
     const updated = bodyKeyValues.map((kv) => (kv.id === id ? { ...kv, [field]: val } : kv));
     setBodyKeyValues(updated);
-    const serialized = serializeKeyValuesToBodyContent(body.type as any, updated);
+    const serialized = serializeKeyValuesToBodyContent(updated);
     const nextBody = { ...body, content: serialized };
     setBody(nextBody);
   };
@@ -335,7 +298,7 @@ export function StepEditor({ bucketId, groupId, stepId }: StepEditorProps) {
   const handleRemoveBodyKeyValue = (id: string) => {
     const updated = bodyKeyValues.filter((kv) => kv.id !== id);
     setBodyKeyValues(updated);
-    const serialized = serializeKeyValuesToBodyContent(body.type as any, updated);
+    const serialized = serializeKeyValuesToBodyContent(updated);
     const nextBody = { ...body, content: serialized };
     setBody(nextBody);
     saveStepData({ body: nextBody });
@@ -554,8 +517,8 @@ export function StepEditor({ bucketId, groupId, stepId }: StepEditorProps) {
                   const newType = e.target.value as any;
                   let newContent = body.content;
                   if (newType === 'form-data' || newType === 'x-www-form-urlencoded') {
-                    const currentPairs = parseBodyContentToKeyValues(newType, body.content);
-                    newContent = serializeKeyValuesToBodyContent(newType, currentPairs);
+                    const currentPairs = parseBodyContentToKeyValues(body.content);
+                    newContent = serializeKeyValuesToBodyContent(currentPairs);
                     setBodyKeyValues(currentPairs);
                   } else {
                     setBodyKeyValues([]);
@@ -654,7 +617,7 @@ export function StepEditor({ bucketId, groupId, stepId }: StepEditorProps) {
                       onChange={(e) => {
                         const updated = bodyKeyValues.map((item) => (item.id === kv.id ? { ...item, enabled: e.target.checked } : item));
                         setBodyKeyValues(updated);
-                        const serialized = serializeKeyValuesToBodyContent(body.type as any, updated);
+                        const serialized = serializeKeyValuesToBodyContent(updated);
                         const nextBody = { ...body, content: serialized };
                         setBody(nextBody);
                         saveStepData({ body: nextBody });

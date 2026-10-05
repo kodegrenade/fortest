@@ -7,9 +7,7 @@ export function StepWaterfall() {
   const { activeRun, selectedStepId, selectedIteration, selectStep } = useExecutionStore();
   const [expandedIterations, setExpandedIterations] = useState<Record<number, boolean>>({ 1: true });
 
-  if (!activeRun) return null;
-
-  const results = activeRun.results || [];
+  const results = activeRun?.results || [];
   
   // Find maximum response time to compute relative bar widths across all results
   const maxResponseTime = Math.max(...results.map((r) => r.responseTime), 1);
@@ -49,6 +47,9 @@ export function StepWaterfall() {
       });
     }
   }, [results]);
+
+  // Early return only after every hook has run (Rules of Hooks).
+  if (!activeRun) return null;
 
   const toggleIteration = (iter: number) => {
     setExpandedIterations((prev) => ({

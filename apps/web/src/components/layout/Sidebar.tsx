@@ -172,7 +172,7 @@ export function Sidebar() {
             </div>
           ) : (
             <div className="bucket-node__groups" style={{ borderLeft: 'none', marginLeft: 0, paddingLeft: 0 }}>
-              {activeBucket.actionGroups
+              {[...activeBucket.actionGroups]
                 .sort((a, b) => a.order - b.order)
                 .map((group) => {
                   const isGroupActive = activeGroupId === group.id;
