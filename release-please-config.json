@@ -13,6 +13,10 @@
           "type": "json",
           "path": "packages/cli/package.json",
           "jsonpath": "$.version"
+        },
+        {
+          "type": "generic",
+          "path": "packages/cli/README.md"
         }
       ]
     }
