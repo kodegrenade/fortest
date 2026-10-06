@@ -3,7 +3,7 @@ import { useExecutionStore } from '@/stores/executionStore';
 import { StepWaterfall } from './StepWaterfall';
 import { StepResultCard } from './StepResultCard';
 import { LayersIcon, XIcon, ClockIcon, CheckCircleIcon } from '@/components/common/Icons';
-import { isExecuting, isFailedResult, regressionBadgeStyle, regressionLabel, runTone, runVerdict, toneBadge, VERDICT_LABEL } from '@/utils/results';
+import { isExecuting, isFailedResult, regressionBadgeStyle, regressionLabel, runTone, runVerdict, toneBadge, TONE_COLOR, VERDICT_LABEL } from '@/utils/results';
 
 export function RunDashboard() {
   const { activeRun, selectedStepId, selectedIteration, isRunning, error, clearRun, cancelRun, selectStep } = useExecutionStore();
@@ -56,10 +56,25 @@ export function RunDashboard() {
     (r) => r.stepId === selectedStepId && (selectedIteration ? r.iteration === selectedIteration : r.iteration === 1)
   );
 
+  // The verdict, in words, is the headline; the tiles below are detail.
+  const verdict = runVerdict(activeRun);
+  const doneSteps = results.filter((r) => !isExecuting(r)).length;
+  const headline =
+    activeRun.status === 'running'
+      ? `Running · ${doneSteps} ${doneSteps === 1 ? 'step' : 'steps'} done`
+      : verdict === 'cancelled'
+        ? `Cancelled after ${doneSteps} ${doneSteps === 1 ? 'step' : 'steps'}`
+        : failedSteps > 0
+          ? `${failedSteps} of ${results.length} steps failed`
+          : activeRun.status === 'failed'
+            ? activeRun.error || 'The run failed before any step ran'
+            : `All ${results.length} steps passed`;
+
+  const muted = 'var(--text-tertiary)';
   const tiles = [
     { label: 'Total Steps', value: results.length, Icon: LayersIcon, iconColor: 'var(--accent-primary)', color: 'var(--text-primary)' },
-    { label: 'Passed', value: completedSteps, Icon: CheckCircleIcon, iconColor: 'var(--status-2xx)', color: 'var(--status-2xx)' },
-    { label: 'Failed', value: failedSteps, Icon: XIcon, iconColor: 'var(--status-5xx)', color: 'var(--status-5xx)' },
+    { label: 'Passed', value: completedSteps, Icon: CheckCircleIcon, iconColor: completedSteps ? 'var(--status-2xx)' : muted, color: completedSteps ? 'var(--status-2xx)' : muted },
+    { label: 'Failed', value: failedSteps, Icon: XIcon, iconColor: failedSteps ? 'var(--status-5xx)' : muted, color: failedSteps ? 'var(--status-5xx)' : muted },
     {
       label: 'Execution Time',
       value: activeRun.status === 'running' ? `${secondsElapsed}s` : `${activeRun.duration || 0} ms`,
@@ -67,6 +82,9 @@ export function RunDashboard() {
       iconColor: 'var(--text-secondary)',
       color: 'var(--text-primary)',
     },
+    ...(activeRun.metrics && activeRun.metrics.totalRequests > 1
+      ? [{ label: 'p95 Latency', value: `${activeRun.metrics.p95} ms`, Icon: ClockIcon, iconColor: 'var(--text-secondary)', color: 'var(--text-primary)' }]
+      : []),
   ];
 
   return (
@@ -85,25 +103,25 @@ export function RunDashboard() {
                 style={{
                   fontSize: '10px',
                   padding: '2px 6px',
-                  ...toneBadge(runTone(runVerdict(activeRun)), 15),
+                  ...toneBadge(runTone(verdict), 15),
                   border: 'none',
                 }}
               >
-                {VERDICT_LABEL[runVerdict(activeRun)].toUpperCase()}
+                {VERDICT_LABEL[verdict].toUpperCase()}
               </span>
             </h2>
-            <span style={{ fontSize: '11px', color: 'var(--text-tertiary)' }}>
-              Run ID: {activeRun.id}
-              {activeRun.environmentName && ` · env: ${activeRun.environmentName}`}
-              {activeRun.error && ` · ${activeRun.error}`}
-            </span>
-            {activeRun.regression && (
-              <div style={{ marginTop: '4px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '8px', marginTop: '2px' }}>
+              <span style={{ fontSize: '14px', fontWeight: 600, color: TONE_COLOR[runTone(verdict)] }}>{headline}</span>
+              {activeRun.regression && (
                 <span style={regressionBadgeStyle} title={`Compared with the median of ${activeRun.regression.comparedRuns} recent runs (same environment and run type)`}>
                   ⚠ Slower than usual: {regressionLabel(activeRun.regression)}
                 </span>
-              </div>
-            )}
+              )}
+            </div>
+            <span style={{ fontSize: '11px', color: 'var(--text-tertiary)' }}>
+              {activeRun.environmentName && `env: ${activeRun.environmentName} · `}Run ID: {activeRun.id}
+              {activeRun.error && failedSteps > 0 && ` · ${activeRun.error}`}
+            </span>
           </div>
         </div>
 
@@ -126,15 +144,15 @@ export function RunDashboard() {
       </div>
 
       {/* Metrics Row */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '16px' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: '12px' }}>
         {tiles.map(({ label, value, Icon, iconColor, color }) => (
-          <div key={label} style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '16px', border: '1px solid var(--border-primary)', borderRadius: 'var(--radius-lg)', backgroundColor: 'var(--bg-secondary)' }}>
+          <div key={label} style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '10px 14px', border: '1px solid var(--border-primary)', borderRadius: 'var(--radius-lg)', backgroundColor: 'var(--bg-secondary)' }}>
             <div style={{ color: iconColor }}>
-              <Icon size={24} />
+              <Icon size={18} />
             </div>
             <div>
               <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', fontWeight: 500 }}>{label}</div>
-              <div style={{ fontSize: '20px', fontWeight: 700, color }}>{value}</div>
+              <div style={{ fontSize: '16px', fontWeight: 700, color }}>{value}</div>
             </div>
           </div>
         ))}

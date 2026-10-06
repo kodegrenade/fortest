@@ -91,6 +91,7 @@
   align-items: center;
   justify-content: space-between;
   min-width: 0;
+  position: relative; /* anchors the hover actions */
 }
 
 .step-node:hover .step-node__card {
@@ -108,15 +109,21 @@
   flex-direction: column;
   gap: 4px;
   min-width: 0;
+  flex: 1;
 }
 
 .step-node__name {
   font-size: 12px;
   font-weight: 500;
   color: var(--text-primary);
-  white-space: nowrap;
+  /* Full width, up to two lines; the full name is in the title */
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
   overflow: hidden;
-  text-overflow: ellipsis;
+  overflow-wrap: anywhere;
+  min-width: 0;
 }
 
 .step-node__path {
@@ -129,6 +136,7 @@
 }
 
 .step-node__method {
+  flex-shrink: 0;
   font-size: 9px;
   font-weight: 600;
   padding: 2px 4px;
@@ -140,12 +148,35 @@
   display: flex;
   align-items: center;
   gap: 4px;
+  /* Floats over the card's right edge, so hidden actions don't take width from the name */
+  position: absolute;
+  top: 50%;
+  right: 6px;
+  transform: translateY(-50%);
+  padding: 2px;
+  border-radius: var(--radius-md);
+  background-color: var(--bg-tertiary);
+  box-shadow: var(--shadow-sm);
   opacity: 0;
+  pointer-events: none;
   transition: opacity var(--transition-fast);
 }
 
-.step-node:hover .step-node__actions {
+.step-node:hover .step-node__actions,
+.step-node:focus-within .step-node__actions {
   opacity: 1;
+  pointer-events: auto;
+}
+
+/* Touch screens can't hover: keep the actions visible, in the layout */
+@media (hover: none) {
+  .step-node__actions {
+    position: static;
+    transform: none;
+    box-shadow: none;
+    opacity: 1;
+    pointer-events: auto;
+  }
 }
 
 /* Step Editor */
@@ -170,9 +201,13 @@
   border-bottom: 1px solid var(--border-primary);
   background-color: var(--bg-secondary);
   padding: 0 16px;
+  overflow-x: auto; /* narrow screens scroll the tabs instead of cutting them off */
+  scrollbar-width: thin;
 }
 
 .step-editor__tab {
+  flex-shrink: 0;
+  white-space: nowrap;
   padding: 12px 16px;
   font-size: 12px;
   font-weight: 500;

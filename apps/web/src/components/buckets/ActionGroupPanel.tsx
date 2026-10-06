@@ -307,11 +307,8 @@ export function ActionGroupPanel() {
                       <div className="step-node__dot">{index + 1}</div>
                       <div className="step-node__card">
                         <div className="step-node__info">
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                            <span className={methodClass} style={methodStyle}>
-                              {step.method}
-                            </span>
-                            <span className="step-node__name">{step.name}</span>
+                          <div style={{ display: 'flex', alignItems: 'flex-start', gap: '8px' }}>
+                            <span className="step-node__name" title={step.name}>{step.name}</span>
                             {step.retry && (
                               <span
                                 className="badge"
@@ -322,7 +319,12 @@ export function ActionGroupPanel() {
                               </span>
                             )}
                           </div>
-                          <span className="step-node__path">{step.path}</span>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', minWidth: 0 }}>
+                            <span className={methodClass} style={methodStyle}>
+                              {step.method}
+                            </span>
+                            <span className="step-node__path" title={step.path}>{step.path}</span>
+                          </div>
                         </div>
 
                         <div className="step-node__actions" onClick={(e) => e.stopPropagation()}>

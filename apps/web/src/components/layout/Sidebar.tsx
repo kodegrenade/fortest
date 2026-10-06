@@ -42,11 +42,11 @@ export function Sidebar() {
         <button
           className="sidebar__home-btn"
           onClick={() => setActiveBucket(null)}
-          title="Back to Dashboard Hub"
+          title="Back to all buckets"
           style={isCollapsed ? { width: '32px', height: '32px', padding: 0, justifyContent: 'center' } : {}}
         >
           <HomeIcon size={16} style={{ flexShrink: 0 }} />
-          {!isCollapsed && <span>Dashboard Hub</span>}
+          {!isCollapsed && <span>All Buckets</span>}
         </button>
 
         {!isCollapsed && (

@@ -251,9 +251,9 @@ export function DashboardHub() {
       <div className="dashboard-hub__header">
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-            <h1 className="dashboard-hub__title">API Test Orchestration Hub</h1>
+            <h1 className="dashboard-hub__title">Buckets</h1>
             <p className="dashboard-hub__subtitle">
-              Configure test buckets, chain HTTP requests in action flows, and watch performance metrics run in real-time.
+              One bucket per API: its base URL, auth and variables, and the action groups that test it.
             </p>
           </div>
           

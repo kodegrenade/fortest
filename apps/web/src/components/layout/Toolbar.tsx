@@ -27,20 +27,20 @@ export function Toolbar() {
       <div className="toolbar__logo">
         <LogoIcon size={22} className="toolbar__logo-icon" />
         <span className="toolbar__logo-text">Fortest</span>
-      </div>
 
-      {activeBucket && (
-        <div className="toolbar__bucket-context" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-          <span className="toolbar__bucket-name" style={{ fontWeight: 600, fontSize: '13px', color: 'var(--text-primary)' }}>
-            {activeBucket.name}
-          </span>
-          {activeBucket.baseUrl && (
-            <span className="toolbar__bucket-url" title={activeBucket.baseUrl} style={{ fontFamily: 'var(--font-mono)', fontSize: '11px', color: 'var(--text-secondary)' }}>
-              {displayBaseUrl(activeBucket)}
-            </span>
-          )}
-        </div>
-      )}
+        {/* Breadcrumb: where you are, next to the product name */}
+        {activeBucket && (
+          <div className="toolbar__bucket-context">
+            <span aria-hidden="true" style={{ color: 'var(--text-tertiary)' }}>/</span>
+            <span className="toolbar__bucket-name">{activeBucket.name}</span>
+            {activeBucket.baseUrl && (
+              <span className="toolbar__bucket-url" title={activeBucket.baseUrl}>
+                {displayBaseUrl(activeBucket)}
+              </span>
+            )}
+          </div>
+        )}
+      </div>
 
       <div className="toolbar__controls" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
         <BackgroundJobsIndicator />

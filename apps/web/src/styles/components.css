@@ -23,6 +23,7 @@
   display: flex;
   align-items: center;
   gap: 8px;
+  min-width: 0;
 }
 
 .toolbar__logo-icon {
@@ -42,6 +43,30 @@
   background-clip: text;
   -webkit-text-fill-color: transparent;
   letter-spacing: -0.01em;
+}
+
+.toolbar__bucket-context {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+  margin-left: 4px;
+}
+
+.toolbar__bucket-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+  white-space: nowrap;
+}
+
+.toolbar__bucket-url {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .toolbar__controls {
