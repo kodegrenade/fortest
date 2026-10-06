@@ -6,7 +6,7 @@ import { LayersIcon, XIcon, ClockIcon, CheckCircleIcon } from '@/components/comm
 import { isExecuting, isFailedResult, regressionBadgeStyle, regressionLabel, runTone, runVerdict, toneBadge, VERDICT_LABEL } from '@/utils/results';
 
 export function RunDashboard() {
-  const { activeRun, selectedStepId, selectedIteration, isRunning, error, clearRun, cancelRun } = useExecutionStore();
+  const { activeRun, selectedStepId, selectedIteration, isRunning, error, clearRun, cancelRun, selectStep } = useExecutionStore();
   const [secondsElapsed, setSecondsElapsed] = useState(0);
 
   // Timer for active runs
@@ -22,6 +22,13 @@ export function RunDashboard() {
       if (interval) clearInterval(interval);
     };
   }, [isRunning, activeRun?.status]);
+
+  // A finished run opens on its first failure (or its first step when everything passed).
+  useEffect(() => {
+    if (!activeRun || selectedStepId || activeRun.status === 'running' || activeRun.status === 'pending') return;
+    const target = activeRun.results.find(isFailedResult) ?? activeRun.results[0];
+    if (target) selectStep(target.stepId, target.iteration);
+  }, [activeRun, selectedStepId, selectStep]);
 
   if (!activeRun) {
     if (error) {
@@ -145,7 +152,7 @@ export function RunDashboard() {
         {/* Right column: Selected Step Inspection Details */}
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
           {selectedResult ? (
-            <StepResultCard result={selectedResult} />
+            <StepResultCard key={`${selectedResult.stepId}:${selectedResult.iteration}`} result={selectedResult} />
           ) : (
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', flex: 1, border: '1px dashed var(--border-primary)', borderRadius: 'var(--radius-lg)', color: 'var(--text-tertiary)', fontSize: '13px' }}>
               Select a step in the pipeline to inspect response details.

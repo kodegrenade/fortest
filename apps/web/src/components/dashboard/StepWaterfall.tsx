@@ -69,6 +69,11 @@ export function StepWaterfall() {
     }
   }, [results]);
 
+  // Keep the selected step visible, e.g. a failure picked automatically in a later iteration.
+  useEffect(() => {
+    if (selectedIteration) setExpandedIterations((prev) => (prev[selectedIteration] ? prev : { ...prev, [selectedIteration]: true }));
+  }, [selectedIteration]);
+
   // Early return only after every hook has run (Rules of Hooks).
   if (!activeRun) return null;
 

@@ -21,6 +21,7 @@ import { Modal } from '@/components/common/Modal';
 // Also checked by the API tests, so they always import cleanly.
 import JSON_TEMPLATE from '@/templates/fortest-template.json?raw';
 import YAML_TEMPLATE from '@/templates/fortest-template.yaml?raw';
+import { displayBaseUrl } from '@/utils/variableParser';
 import '../buckets/Buckets.css';
 
 export function DashboardHub() {
@@ -251,7 +252,7 @@ export function DashboardHub() {
                 <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0, flex: 1 }}>
                   <span className="bucket-card__title">{bucket.name}</span>
                   {bucket.baseUrl ? (
-                    <span className="bucket-card__url">{bucket.baseUrl}</span>
+                    <span className="bucket-card__url" title={bucket.baseUrl}>{displayBaseUrl(bucket)}</span>
                   ) : (
                     <span style={{ fontSize: '11px', color: 'var(--text-tertiary)', marginTop: '4px', fontStyle: 'italic' }}>
                       No base URL configured
@@ -295,7 +296,7 @@ export function DashboardHub() {
                 <div className="bucket-list-item__title-group">
                   <span className="bucket-list-item__title">{bucket.name}</span>
                   {bucket.baseUrl ? (
-                    <span className="bucket-list-item__url">{bucket.baseUrl}</span>
+                    <span className="bucket-list-item__url" title={bucket.baseUrl}>{displayBaseUrl(bucket)}</span>
                   ) : (
                     <span className="bucket-list-item__url-empty">No base URL configured</span>
                   )}

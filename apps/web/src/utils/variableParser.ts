@@ -1,3 +1,12 @@
+import type { TestBucket } from '@fortest/types';
+import { effectiveVariables, interpolate, redact, secretsOf } from '@fortest/utils';
+
+/** The bucket's base URL as its runs will call it (active environment), with secret values masked. */
+export function displayBaseUrl(bucket: TestBucket): string {
+  const variables = effectiveVariables(bucket);
+  return redact(interpolate(bucket.baseUrl || '', variables).resolved, secretsOf(variables));
+}
+
 interface ParsedVariable {
   key: string;
   value: string;

@@ -2,6 +2,7 @@ import { useThemeStore } from '@/stores/themeStore';
 import { useBucketStore } from '@/stores/bucketStore';
 import { LogoIcon, SunIcon, MoonIcon, MonitorIcon } from '@/components/common/Icons';
 import { BackgroundJobsIndicator } from './BackgroundJobsIndicator';
+import { displayBaseUrl } from '@/utils/variableParser';
 
 const THEME_ICONS = {
   light: SunIcon,
@@ -34,8 +35,8 @@ export function Toolbar() {
             {activeBucket.name}
           </span>
           {activeBucket.baseUrl && (
-            <span className="toolbar__bucket-url" style={{ fontFamily: 'var(--font-mono)', fontSize: '11px', color: 'var(--text-secondary)' }}>
-              {activeBucket.baseUrl}
+            <span className="toolbar__bucket-url" title={activeBucket.baseUrl} style={{ fontFamily: 'var(--font-mono)', fontSize: '11px', color: 'var(--text-secondary)' }}>
+              {displayBaseUrl(activeBucket)}
             </span>
           )}
         </div>
