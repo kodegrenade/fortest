@@ -17,7 +17,7 @@ const THEME_LABELS = {
 } as const;
 
 export function Toolbar() {
-  const { theme, toggleTheme, subTheme, setSubTheme } = useThemeStore();
+  const { theme, toggleTheme } = useThemeStore();
   const activeBucket = useBucketStore((s) => s.buckets.find((b) => b.id === s.activeBucketId));
 
   const ThemeIcon = THEME_ICONS[theme];
@@ -44,28 +44,6 @@ export function Toolbar() {
 
       <div className="toolbar__controls" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
         <BackgroundJobsIndicator />
-        <select
-          className="toolbar__preset"
-          value={subTheme}
-          onChange={(e) => setSubTheme(e.target.value as any)}
-          title="Select Color Preset"
-          style={{
-            fontSize: '11px',
-            padding: '4px 8px',
-            borderRadius: 'var(--radius-sm)',
-            backgroundColor: 'var(--bg-tertiary)',
-            border: '1px solid var(--border-primary)',
-            color: 'var(--text-secondary)',
-            cursor: 'pointer',
-            outline: 'none',
-          }}
-        >
-          <option value="default">Default theme</option>
-          <option value="dracula">Dracula preset</option>
-          <option value="cyberpunk">Cyberpunk preset</option>
-          <option value="nord">Nord Ice preset</option>
-          <option value="monokai">Monokai preset</option>
-        </select>
         <button
           className="btn btn--icon"
           onClick={toggleTheme}

@@ -251,7 +251,7 @@ export function ActionGroupPanel() {
             <button
               className="btn btn--primary"
               title="Run Action Group"
-              style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '6px 14px', fontSize: '12.5px', fontWeight: 600 }}
+              style={{ fontWeight: 600 }}
               onClick={() => setIsRunConfigOpen(true)}
             >
               <PlayIcon size={14} /> Run Flow
@@ -356,7 +356,6 @@ export function ActionGroupPanel() {
                     <button
                       className="btn btn--primary"
                       onClick={() => setDialogState({ type: 'createStep' })}
-                      style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '6px 12px' }}
                     >
                       <PlusIcon size={14} /> Add First Step
                     </button>

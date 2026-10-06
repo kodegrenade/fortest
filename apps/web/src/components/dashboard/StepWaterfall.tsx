@@ -268,7 +268,7 @@ export function StepWaterfall() {
         })}
 
         {hiddenCount > 0 && (
-          <button type="button" className="btn btn--ghost" style={{ alignSelf: 'center', fontSize: '12px' }} onClick={() => setVisibleCount((n) => n + ITERATION_PAGE)}>
+          <button type="button" className="btn btn--ghost btn--sm" style={{ alignSelf: 'center' }} onClick={() => setVisibleCount((n) => n + ITERATION_PAGE)}>
             {hiddenCount.toLocaleString()} more iterations · Show {Math.min(ITERATION_PAGE, hiddenCount)} more
           </button>
         )}

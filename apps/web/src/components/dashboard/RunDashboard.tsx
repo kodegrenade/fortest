@@ -110,16 +110,14 @@ export function RunDashboard() {
         <div style={{ display: 'flex', gap: '8px' }}>
           {activeRun.status === 'running' && (
             <button
-              className="btn btn--ghost"
-              style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', color: 'var(--status-5xx)' }}
+              className="btn btn--ghost btn--sm btn--danger"
               onClick={() => cancelRun(activeRun.id)}
             >
               Stop Run
             </button>
           )}
           <button
-            className="btn btn--ghost"
-            style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px' }}
+            className="btn btn--ghost btn--sm"
             onClick={clearRun}
           >
             <XIcon size={14} /> Close Dashboard

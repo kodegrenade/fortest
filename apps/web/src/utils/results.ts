@@ -42,7 +42,7 @@ export const VERDICT_LABEL: Record<RunVerdict, string> = {
   pending: 'Pending',
 };
 
-/** A theme color at the given opacity (follows the active color preset). */
+/** A theme color at the given opacity (follows light/dark). */
 export const tint = (color: string, percent: number) =>
   `color-mix(in srgb, ${color} ${percent}%, transparent)`;
 

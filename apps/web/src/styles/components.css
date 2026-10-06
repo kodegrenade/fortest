@@ -145,10 +145,9 @@
   }
 }
 
-/* Phones: the bucket is named in the sidebar and colour presets can wait for a wider screen. */
+/* Phones: the bucket is already named in the sidebar. */
 @media (max-width: 600px) {
-  .toolbar__bucket-context,
-  .toolbar__preset {
+  .toolbar__bucket-context {
     display: none !important;
   }
 }
@@ -200,6 +199,22 @@
 .switch input:focus-visible {
   outline: 2px solid var(--accent-primary);
   outline-offset: 2px;
+}
+
+/* --- Run history: the whole row opens the run --- */
+.history-row {
+  border-bottom: 1px solid var(--border-secondary);
+  cursor: pointer;
+  transition: background-color var(--transition-fast);
+}
+
+.history-row:hover {
+  background-color: var(--bg-hover);
+}
+
+.history-row:focus-visible {
+  outline: 2px solid var(--accent-primary);
+  outline-offset: -2px;
 }
 
 /* --- Empty State --- */
@@ -284,6 +299,36 @@
 .btn--icon:hover {
   background-color: var(--bg-hover);
   color: var(--text-primary);
+}
+
+.btn--secondary {
+  background-color: var(--bg-tertiary);
+  border: 1px solid var(--border-primary);
+  color: var(--text-primary);
+}
+
+.btn--secondary:hover {
+  background-color: var(--bg-hover);
+}
+
+.btn--sm {
+  padding: 4px 10px;
+  font-size: 12px;
+}
+
+.btn--xs {
+  padding: 3px 8px;
+  font-size: 11px;
+}
+
+.btn--danger,
+.btn--danger:hover {
+  color: var(--status-5xx);
+}
+
+.btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
 }
 
 /* --- Input --- */

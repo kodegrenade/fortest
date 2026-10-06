@@ -265,8 +265,8 @@ export function RunConfigModal({ bucketId, groupId, onClose }: RunConfigModalPro
                   </div>
                   <button
                     type="button"
-                    className="btn btn--ghost"
-                    style={{ padding: '4px 8px', fontSize: '11px', color: 'var(--method-delete)', flexShrink: 0 }}
+                    className="btn btn--ghost btn--xs btn--danger"
+                    style={{ flexShrink: 0 }}
                     onClick={handleClearExistingDataStore}
                   >
                     Remove
@@ -284,8 +284,8 @@ export function RunConfigModal({ bucketId, groupId, onClose }: RunConfigModalPro
                   </div>
                   <button
                     type="button"
-                    className="btn btn--ghost"
-                    style={{ padding: '4px 8px', fontSize: '11px', flexShrink: 0 }}
+                    className="btn btn--ghost btn--xs"
+                    style={{ flexShrink: 0 }}
                     onClick={handleClearUploadedFile}
                   >
                     Clear
@@ -340,7 +340,6 @@ export function RunConfigModal({ bucketId, groupId, onClose }: RunConfigModalPro
           <button
             type="submit"
             className="btn btn--primary"
-            style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
             disabled={useDataStore && !uploadedFile && !hasDataStoreAttached}
           >
             <PlayIcon size={14} /> Run Flow

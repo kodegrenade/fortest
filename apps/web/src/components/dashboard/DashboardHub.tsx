@@ -299,7 +299,7 @@ export function DashboardHub() {
             <button type="button" className="btn btn--primary" onClick={() => setDialogState({ type: 'createBucket' })}>
               <PlusIcon size={14} /> Create Bucket
             </button>
-            <button type="button" className="btn btn--ghost" onClick={() => setDialogState({ type: 'importBucket' })}>
+            <button type="button" className="btn btn--secondary" onClick={() => setDialogState({ type: 'importBucket' })}>
               <InboxIcon size={14} /> Import
             </button>
           </div>
@@ -611,7 +611,6 @@ export function DashboardHub() {
                   className="btn btn--primary"
                   onClick={handleImportSubmit}
                   disabled={!selectedFile || isImporting}
-                  style={{ display: 'flex', alignItems: 'center', gap: '8px' }}
                 >
                   {isImporting ? (
                     <>
@@ -652,7 +651,7 @@ export function DashboardHub() {
 
               <a
                 className="btn btn--secondary"
-                style={{ width: '100%', marginTop: '16px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}
+                style={{ width: '100%', marginTop: '16px', justifyContent: 'center' }}
                 href={`data:text/plain;charset=utf-8,${encodeURIComponent(template)}`}
                 download={`fortest-template.${templateTab}`}
                 onClick={() => addToast(`Template fortest-template.${templateTab} downloaded successfully`, 'success')}
