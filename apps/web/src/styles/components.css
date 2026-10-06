@@ -122,6 +122,86 @@
   left: 48px;
 }
 
+/* Narrow screens: the content keeps the collapsed rail's width and the open sidebar overlays it. */
+.sidebar-backdrop {
+  display: none;
+}
+
+@media (max-width: 900px) {
+  .main-content {
+    left: 48px;
+  }
+
+  .sidebar:not(.sidebar--collapsed) {
+    box-shadow: var(--shadow-lg);
+  }
+
+  .sidebar-backdrop {
+    display: block;
+    position: fixed;
+    inset: var(--toolbar-height) 0 0 0;
+    z-index: 89;
+    background-color: hsla(0, 0%, 0%, 0.3);
+  }
+}
+
+/* Phones: the bucket is named in the sidebar and colour presets can wait for a wider screen. */
+@media (max-width: 600px) {
+  .toolbar__bucket-context,
+  .toolbar__preset {
+    display: none !important;
+  }
+}
+
+/* --- Switch: a native checkbox (role="switch") drawn as a toggle; the whole label is clickable --- */
+.switch {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  cursor: pointer;
+}
+
+.switch input {
+  appearance: none;
+  position: relative;
+  flex-shrink: 0;
+  width: 36px;
+  height: 20px;
+  margin: 0;
+  border-radius: 20px;
+  border: 1px solid var(--border-primary);
+  background-color: var(--bg-hover);
+  cursor: pointer;
+  transition: background-color var(--transition-fast);
+}
+
+.switch input::after {
+  content: '';
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background-color: var(--text-secondary);
+  transition: transform var(--transition-fast), background-color var(--transition-fast);
+}
+
+.switch input:checked {
+  background-color: var(--accent-primary);
+}
+
+.switch input:checked::after {
+  transform: translateX(16px);
+  background-color: #ffffff;
+}
+
+.switch input:focus-visible {
+  outline: 2px solid var(--accent-primary);
+  outline-offset: 2px;
+}
+
 /* --- Empty State --- */
 .empty-state {
   display: flex;

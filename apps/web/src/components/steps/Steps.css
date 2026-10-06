@@ -384,3 +384,19 @@
   transform: translateY(-2px);
 }
 
+/* Narrow screens (matches the sidebar breakpoint in components.css): header wraps, steps stack above the editor */
+@media (max-width: 900px) {
+  .action-group-header {
+    flex-wrap: wrap;
+  }
+
+  .action-group-panel {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(0, 35%) minmax(0, 1fr);
+  }
+
+  .step-timeline-container {
+    border-right: none;
+    border-bottom: 1px solid var(--border-primary);
+  }
+}

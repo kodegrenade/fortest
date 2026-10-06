@@ -18,15 +18,29 @@ export const TONE_COLOR: Record<Tone, string> = {
   pending: 'var(--text-tertiary)',
 };
 
-/** Tone for a run or background-job status. */
+/** Tone for a run verdict or background-job status. */
 export const runTone = (status: string): Tone =>
-  status === 'completed'
+  status === 'completed' || status === 'passed'
     ? 'passed'
     : status === 'failed'
       ? 'failed'
       : status === 'running'
         ? 'running'
         : 'pending';
+
+export type RunVerdict = 'passed' | 'failed' | 'running' | 'cancelled' | 'pending';
+
+/** A run's outcome as users read it: "completed" only means it ran to the end, so any failed request makes it failed. */
+export const runVerdict = (run: Pick<RunSummary, 'status' | 'metrics'>): RunVerdict =>
+  run.status === 'completed' ? ((run.metrics?.failed ?? 0) > 0 ? 'failed' : 'passed') : run.status;
+
+export const VERDICT_LABEL: Record<RunVerdict, string> = {
+  passed: 'Passed',
+  failed: 'Failed',
+  running: 'Running',
+  cancelled: 'Cancelled',
+  pending: 'Pending',
+};
 
 /** A theme color at the given opacity (follows the active color preset). */
 export const tint = (color: string, percent: number) =>

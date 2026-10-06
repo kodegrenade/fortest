@@ -1,7 +1,7 @@
 import { useEffect } from 'react';
 import { useExecutionStore } from '@/stores/executionStore';
 import { ClockIcon, CheckCircleIcon, XIcon } from '@/components/common/Icons';
-import { regressionBadgeStyle, regressionLabel, runTone, toneBadge } from '@/utils/results';
+import { regressionBadgeStyle, regressionLabel, runTone, runVerdict, toneBadge, VERDICT_LABEL } from '@/utils/results';
 
 const dateFormat = new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' });
 const relativeFormat = new Intl.RelativeTimeFormat(undefined, { numeric: 'auto' });
@@ -82,8 +82,9 @@ export function HistoryList({ groupId }: HistoryListProps) {
               const metrics = run.metrics;
               const hasMetrics = !!metrics;
 
-              const successRate = 100 - Math.round(metrics?.errorRate ?? 0);
-              const isSuccess = run.status === 'completed' && successRate === 100;
+              // Rounded down: a single failure must never display as 100%.
+              const successRate = Math.floor(100 - (metrics?.errorRate ?? 0));
+              const verdict = runVerdict(run);
 
               return (
                 <tr
@@ -115,18 +116,18 @@ export function HistoryList({ groupId }: HistoryListProps) {
                         textTransform: 'uppercase',
                         padding: '2px 8px',
                         borderRadius: '4px',
-                        ...toneBadge(isSuccess ? 'passed' : run.status === 'completed' ? 'failed' : runTone(run.status), 12),
+                        ...toneBadge(runTone(verdict), 12),
                         border: 'none',
                       }}
                     >
-                      {isSuccess ? (
+                      {verdict === 'passed' ? (
                         <CheckCircleIcon size={12} />
-                      ) : run.status === 'running' ? (
+                      ) : verdict === 'running' ? (
                         <div className="spinner" style={{ width: '10px', height: '10px', borderWidth: '1px' }}></div>
                       ) : (
                         <XIcon size={12} />
                       )}
-                      {run.status === 'running' ? 'Running' : run.status === 'cancelled' ? 'Cancelled' : isSuccess ? 'Passed' : 'Failed'}
+                      {VERDICT_LABEL[verdict]}
                     </span>
                     {run.regression && (
                       <span style={{ ...regressionBadgeStyle, display: 'inline-block', marginTop: '4px' }} title={regressionLabel(run.regression)}>

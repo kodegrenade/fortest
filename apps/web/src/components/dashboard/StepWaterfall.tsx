@@ -7,14 +7,26 @@ import { attemptsLabel, isExecuting, isFailedResult, tint, toneBadge, type Tone 
 // Latency bar color: green for 2xx, red otherwise.
 const TONE_BAR = (res: StepResult) => (res.status >= 200 && res.status < 300 ? 'var(--status-2xx)' : 'var(--status-5xx)');
 
+// Load runs can have 10k iterations; render at most this many rows at a time.
+const ITERATION_PAGE = 100;
+const ALWAYS_SHOWN = 20; // the first iterations are shown even when they passed
+
+const getIterationStatus = (iterSteps: StepResult[]): Tone => {
+  if (iterSteps.some(isExecuting)) return 'running';
+  if (iterSteps.some(isFailedResult)) return 'failed';
+  return iterSteps.length > 0 ? 'passed' : 'pending';
+};
+
 export function StepWaterfall() {
   const { activeRun, selectedStepId, selectedIteration, selectStep } = useExecutionStore();
   const [expandedIterations, setExpandedIterations] = useState<Record<number, boolean>>({ 1: true });
+  const [visibleCount, setVisibleCount] = useState(ITERATION_PAGE);
 
   const results = activeRun?.results || [];
   
   // Find maximum response time to compute relative bar widths across all results
-  const maxResponseTime = Math.max(...results.map((r) => r.responseTime), 1);
+  // (reduce, not Math.max(...spread): a spread of 100k+ results exceeds the engine's argument limit)
+  const maxResponseTime = results.reduce((max, r) => Math.max(max, r.responseTime), 1);
 
   // Group results by iteration (defaulting to 1 if iteration is undefined)
   const resultsByIteration: Record<number, StepResult[]> = {};
@@ -24,6 +36,17 @@ export function StepWaterfall() {
   const iterationKeys = Object.keys(resultsByIteration)
     .map(Number)
     .sort((a, b) => a - b);
+
+  // Failed and running iterations first, then the first few, then the rest; shown in iteration order.
+  const isNotable = (iter: number, index: number) =>
+    index < ALWAYS_SHOWN || getIterationStatus(resultsByIteration[iter]!) !== 'passed';
+  const visibleKeys = [
+    ...iterationKeys.filter(isNotable),
+    ...iterationKeys.filter((iter, index) => !isNotable(iter, index)),
+  ]
+    .slice(0, visibleCount)
+    .sort((a, b) => a - b);
+  const hiddenCount = iterationKeys.length - visibleKeys.length;
 
   // Auto-expand any running iteration as it starts
   useEffect(() => {
@@ -56,12 +79,6 @@ export function StepWaterfall() {
     }));
   };
 
-  const getIterationStatus = (iterSteps: StepResult[]): Tone => {
-    if (iterSteps.some(isExecuting)) return 'running';
-    if (iterSteps.some(isFailedResult)) return 'failed';
-    return iterSteps.length > 0 ? 'passed' : 'pending';
-  };
-
   const getStepStatusIcon = (res: StepResult) => {
     if (isExecuting(res)) {
       return <div className="spinner" style={{ width: '14px', height: '14px', borderWidth: '1.5px' }}></div>;
@@ -89,7 +106,7 @@ export function StepWaterfall() {
       </div>
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '2px' }}>
-        {iterationKeys.map((iter) => {
+        {visibleKeys.map((iter) => {
           const iterSteps = resultsByIteration[iter] || [];
           const status = getIterationStatus(iterSteps);
           const isExpanded = !!expandedIterations[iter];
@@ -244,6 +261,12 @@ export function StepWaterfall() {
             </div>
           );
         })}
+
+        {hiddenCount > 0 && (
+          <button type="button" className="btn btn--ghost" style={{ alignSelf: 'center', fontSize: '12px' }} onClick={() => setVisibleCount((n) => n + ITERATION_PAGE)}>
+            {hiddenCount.toLocaleString()} more iterations · Show {Math.min(ITERATION_PAGE, hiddenCount)} more
+          </button>
+        )}
 
         {results.length === 0 && (
           <div style={{ textAlign: 'center', padding: '24px', color: 'var(--text-tertiary)', fontSize: '12px', border: '1px dashed var(--border-primary)', borderRadius: 'var(--radius-lg)' }}>

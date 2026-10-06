@@ -8,6 +8,7 @@ import { DashboardHub } from '../dashboard/DashboardHub';
 
 export function AppShell() {
   const isCollapsed = useSidebarStore((s) => s.isCollapsed);
+  const toggleCollapse = useSidebarStore((s) => s.toggleCollapse);
   const { activeBucketId, activeGroupId } = useBucketStore();
 
   if (activeBucketId === null) {
@@ -27,6 +28,8 @@ export function AppShell() {
     <div className="app-shell">
       <Toolbar />
       <Sidebar />
+      {/* Only shown on narrow screens, where the open sidebar overlays the content */}
+      {!isCollapsed && <div className="sidebar-backdrop" onClick={toggleCollapse} aria-hidden="true" />}
 
       <main className={mainClass}>
         {activeGroupId === null ? (

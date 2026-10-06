@@ -44,6 +44,7 @@ export function Toolbar() {
       <div className="toolbar__controls" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
         <BackgroundJobsIndicator />
         <select
+          className="toolbar__preset"
           value={subTheme}
           onChange={(e) => setSubTheme(e.target.value as any)}
           title="Select Color Preset"

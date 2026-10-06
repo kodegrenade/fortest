@@ -3,7 +3,7 @@ import { useExecutionStore } from '@/stores/executionStore';
 import { StepWaterfall } from './StepWaterfall';
 import { StepResultCard } from './StepResultCard';
 import { LayersIcon, XIcon, ClockIcon, CheckCircleIcon } from '@/components/common/Icons';
-import { isExecuting, isFailedResult, regressionBadgeStyle, regressionLabel, runTone, toneBadge } from '@/utils/results';
+import { isExecuting, isFailedResult, regressionBadgeStyle, regressionLabel, runTone, runVerdict, toneBadge, VERDICT_LABEL } from '@/utils/results';
 
 export function RunDashboard() {
   const { activeRun, selectedStepId, selectedIteration, isRunning, error, clearRun, cancelRun } = useExecutionStore();
@@ -78,11 +78,11 @@ export function RunDashboard() {
                 style={{
                   fontSize: '10px',
                   padding: '2px 6px',
-                  ...toneBadge(runTone(activeRun.status), 15),
+                  ...toneBadge(runTone(runVerdict(activeRun)), 15),
                   border: 'none',
                 }}
               >
-                {activeRun.status.toUpperCase()}
+                {VERDICT_LABEL[runVerdict(activeRun)].toUpperCase()}
               </span>
             </h2>
             <span style={{ fontSize: '11px', color: 'var(--text-tertiary)' }}>
