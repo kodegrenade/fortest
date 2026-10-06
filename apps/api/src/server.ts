@@ -3,9 +3,13 @@ import app from './app';
 import { connectRedis, disconnectRedis } from './services/redis';
 import { createStorageAdapter, getStorageMode } from './services/storage';
 import { subscribeToRun, unsubscribeFromRun, clearClientSubscriptions } from './services/websocketService';
-import { getRunById } from './services/runnerService';
+import { getRunById, failOrphanedRuns } from './services/runnerService';
+import type { RunEvent } from '@fortest/types';
+import { isLocalRequest } from './middleware/security';
 
 const PORT = parseInt(process.env['PORT'] ?? '3001', 10);
+// Loopback only by default; Docker sets HOST=0.0.0.0 and publishes the port on 127.0.0.1 instead.
+const HOST = process.env['HOST'] ?? '127.0.0.1';
 
 async function start(): Promise<void> {
   // Attempt Redis connection (non-fatal if it fails)
@@ -14,9 +18,10 @@ async function start(): Promise<void> {
   // Initialize storage adapter based on Redis availability
   createStorageAdapter();
   console.log(`[Server] Storage mode: ${getStorageMode()}`);
+  await failOrphanedRuns();
 
-  const server = app.listen(PORT, () => {
-    console.log(`[Server] Fortest API running on http://localhost:${PORT}`);
+  const server = app.listen(PORT, HOST, () => {
+    console.log(`[Server] Fortest API running on http://${HOST}:${PORT}`);
     console.log(`[Server] Health check: http://localhost:${PORT}/api/health`);
   });
 
@@ -24,8 +29,8 @@ async function start(): Promise<void> {
   const wss = new WebSocketServer({ noServer: true });
 
   server.on('upgrade', (request, socket, head) => {
-    const url = new URL(request.url || '', `http://${request.headers.host || 'localhost'}`);
-    if (url.pathname === '/ws') {
+    const url = new URL(request.url || '', 'http://localhost');
+    if (url.pathname === '/ws' && isLocalRequest(request.headers)) {
       wss.handleUpgrade(request, socket, head, (ws) => {
         wss.emit('connection', ws, request);
       });
@@ -42,24 +47,14 @@ async function start(): Promise<void> {
         const parsed = JSON.parse(message);
         if (parsed.type === 'subscribe') {
           subscribeToRun(parsed.runId, ws);
-          // Catch-up mechanism: send completion status immediately if the run is already finished
-          getRunById(parsed.runId).then((run) => {
-            if (run && (run.status === 'completed' || run.status === 'failed')) {
-              ws.send(JSON.stringify({
-                type: run.status === 'completed' ? 'run:completed' : 'run:failed',
-                runId: run.id,
-                error: run.status === 'failed' ? 'Execution finished' : undefined,
-                summary: run.metrics ? {
-                  totalRequests: run.metrics.totalRequests,
-                  completed: run.metrics.completed,
-                  failed: run.metrics.failed
-                } : undefined,
-                duration: run.duration
-              }));
-            }
-          }).catch(err => {
-            console.error('[WS] Error fetching run for subscription catch-up:', err);
-          });
+          // Snapshot of everything so far, so events emitted before this subscription aren't lost.
+          getRunById(parsed.runId)
+            .then((run) => {
+              if (!run) return;
+              const snapshot: RunEvent = { type: 'run:snapshot', runId: run.id, run };
+              ws.send(JSON.stringify(snapshot));
+            })
+            .catch((err) => console.error('[WS] Error sending run snapshot:', err));
         } else if (parsed.type === 'unsubscribe') {
           unsubscribeFromRun(parsed.runId, ws);
         }

@@ -23,15 +23,6 @@
   justify-content: space-between;
 }
 
-.step-timeline-title {
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--text-primary);
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
 .step-timeline {
   display: flex;
   flex-direction: column;
@@ -222,15 +213,6 @@
   cursor: pointer;
 }
 
-/* Codemirror override */
-.cm-theme {
-  border: 1px solid var(--border-primary);
-  border-radius: var(--radius-md);
-  overflow: hidden;
-  font-family: var(--font-mono);
-  font-size: 12px;
-}
-
 /* Variables Autocomplete Dropdown */
 .variables-dropdown {
   position: absolute;
@@ -401,5 +383,4 @@
   box-shadow: 0 0 0 2px var(--accent-subtle) !important;
   transform: translateY(-2px);
 }
-
 

@@ -12,7 +12,7 @@ export const ExtractionRuleSchema = z.object({
   id: z.string().uuid(),
   variableName: z.string().min(1),
   source: ExtractionSourceSchema.default('body'),
-  selector: z.string().min(1), // dot notation path, e.g. "data.user.id"
+  selector: z.string().default(''), // dot notation path, e.g. "data.user.id"; unused for 'status'
 });
 export type ExtractionRule = z.infer<typeof ExtractionRuleSchema>;
 
@@ -59,6 +59,13 @@ export const StepSchema = z.object({
   auth: AuthConfigSchema.default({ type: 'none' }), // step-level auth override (falls back to bucket auth if 'none')
   extractions: z.array(ExtractionRuleSchema).default([]),
   assertions: z.array(AssertionSchema).default([]),
+  // Resend until the step passes (assertions pass, no network error or 4xx/5xx), e.g. polling a job.
+  retry: z
+    .object({
+      maxAttempts: z.number().int().min(2).max(100),
+      intervalMs: z.number().int().min(0).max(60000),
+    })
+    .optional(),
   createdAt: z.string().datetime(),
   updatedAt: z.string().datetime(),
 });
@@ -106,8 +113,25 @@ export const BucketVariableSchema = z.object({
   key: z.string().min(1),
   value: z.string(),
   enabled: z.boolean().default(true),
+  // Masked in the app, blanked in exports, redacted from run results (supply it in CI with --var).
+  secret: z.boolean().optional(),
 });
 export type BucketVariable = z.infer<typeof BucketVariableSchema>;
+
+// --- Environment ---
+// Named variables (e.g. staging, prod) that override the bucket's own variables when selected.
+
+export const EnvironmentSchema = z.object({
+  id: z.string().uuid(),
+  name: z.string().min(1),
+  variables: z.array(BucketVariableSchema).default([]),
+});
+export type Environment = z.infer<typeof EnvironmentSchema>;
+
+// --- Bucket file format ---
+// Exported bucket files carry `formatVersion`, so files committed to repositories keep working
+// (or fail clearly) as the format evolves. Bump it on breaking changes, with a migration on import.
+export const BUCKET_FORMAT_VERSION = 1;
 
 // --- Test Bucket ---
 // Top-level container scoped to one API service.
@@ -119,6 +143,8 @@ export const TestBucketSchema = z.object({
   auth: AuthConfigSchema.default({ type: 'none' }),
   variables: z.array(BucketVariableSchema).default([]),
   actionGroups: z.array(ActionGroupSchema).default([]),
+  environments: z.array(EnvironmentSchema).default([]),
+  activeEnvironmentId: z.string().uuid().nullable().default(null), // the selected environment, if any
   createdAt: z.string().datetime(),
   updatedAt: z.string().datetime(),
 });

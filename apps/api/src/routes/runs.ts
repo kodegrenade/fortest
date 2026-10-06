@@ -1,10 +1,19 @@
 import { Router } from 'express';
-import { v4 as uuidv4 } from 'uuid';
-import { runGroup, getRunById, getGroupRuns } from '../services/runnerService';
+import { z } from 'zod';
+import { randomUUID } from 'node:crypto';
+import { runGroup, getRunById, getGroupRuns, cancelRun } from '../services/runnerService';
+import { getBucketById } from '../services/bucketService';
 import { broadcastToRun } from '../services/websocketService';
-import type { ApiError } from '@fortest/types';
+import { ExecutionConfigSchema, type ApiError } from '@fortest/types';
 
 const router: import('express').Router = Router();
+
+// .partial() keeps the limits but skips the defaults, so runGroup can still infer 'load' mode.
+const StartRunSchema = z.object({
+  bucketId: z.string().uuid(),
+  groupId: z.string().uuid(),
+  config: ExecutionConfigSchema.partial().optional(),
+});
 
 /**
  * GET /api/runs
@@ -23,17 +32,7 @@ router.get('/', async (req, res) => {
     return;
   }
 
-  try {
-    const runsList = await getGroupRuns(groupId);
-    res.json(runsList);
-  } catch (err: any) {
-    const error: ApiError = {
-      error: 'Internal Server Error',
-      message: err.message || 'Failed to list execution runs.',
-      statusCode: 500,
-    };
-    res.status(500).json(error);
-  }
+  res.json(await getGroupRuns(groupId));
 });
 
 /**
@@ -41,19 +40,21 @@ router.get('/', async (req, res) => {
  * Initiates an execution run for an Action Group in the background.
  */
 router.post('/', async (req, res) => {
-  const { bucketId, groupId, config } = req.body;
+  const { bucketId, groupId, config } = StartRunSchema.parse(req.body);
 
-  if (!bucketId || !groupId) {
+  // Check up front: once the 201 is sent, a missing bucket/group would fail silently in the background.
+  const bucket = await getBucketById(bucketId);
+  if (!bucket?.actionGroups.some((g) => g.id === groupId)) {
     const error: ApiError = {
-      error: 'Validation Error',
-      message: 'Both bucketId and groupId are required to start a run.',
-      statusCode: 400,
+      error: 'Not Found',
+      message: 'Bucket or action group not found.',
+      statusCode: 404,
     };
-    res.status(400).json(error);
+    res.status(404).json(error);
     return;
   }
 
-  const runId = uuidv4();
+  const runId = randomUUID();
 
   // Fire execution in background
   runGroup(bucketId, groupId, runId, config, (event) => {
@@ -88,6 +89,19 @@ router.get('/:id', async (req, res) => {
   }
 
   res.json(run);
+});
+
+/**
+ * POST /api/runs/:id/cancel
+ * Stops a run in progress; it finishes with status "cancelled".
+ */
+router.post('/:id/cancel', (req, res) => {
+  if (!cancelRun(req.params['id']!)) {
+    const error: ApiError = { error: 'Not Found', message: 'Run is not in progress.', statusCode: 404 };
+    res.status(404).json(error);
+    return;
+  }
+  res.status(202).json({ runId: req.params['id'] });
 });
 
 export default router;

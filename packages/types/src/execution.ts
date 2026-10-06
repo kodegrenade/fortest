@@ -2,14 +2,14 @@ import { z } from 'zod';
 
 // --- Execution Configuration ---
 
-export const ExecutionModeSchema = z.enum(['manual', 'load', 'scheduled']);
+export const ExecutionModeSchema = z.enum(['manual', 'load']);
 export type ExecutionMode = z.infer<typeof ExecutionModeSchema>;
 
 export const ExecutionConfigSchema = z.object({
   mode: ExecutionModeSchema.default('manual'),
-  iterations: z.number().int().positive().default(1), // number of times to run the action group
-  concurrency: z.number().int().positive().default(1), // how many iterations run in parallel
-  delayBetweenSteps: z.number().int().min(0).default(0), // ms delay between steps within one iteration
+  iterations: z.number().int().positive().max(10000).default(1), // number of times to run the action group
+  concurrency: z.number().int().positive().max(100).default(1), // how many iterations run in parallel
+  delayBetweenSteps: z.number().int().min(0).max(60000).default(0), // ms delay between steps within one iteration
   useDataStore: z.boolean().default(false), // whether to drive iterations from a data store
 });
 export type ExecutionConfig = z.infer<typeof ExecutionConfigSchema>;
@@ -43,6 +43,11 @@ export const StepResultSchema = z.object({
   assertions: z.array(AssertionResultSchema).default([]),
   error: z.string().optional(), // populated if the request itself failed (network error, timeout)
   requestBody: z.string().optional(),
+  // True when the bodies weren't kept: load runs only keep them for iteration 1 and failed steps.
+  bodyOmitted: z.boolean().optional(),
+  // Retrying steps: how many requests were sent, and ms from the first send to the final response.
+  attempts: z.number().int().min(1).optional(),
+  elapsedMs: z.number().min(0).optional(),
   timestamp: z.string().datetime(),
   url: z.string().default(''),
   method: z.string().default('GET'),
@@ -84,62 +89,25 @@ export const ExecutionRunSchema = z.object({
   startedAt: z.string().datetime().optional(),
   completedAt: z.string().datetime().optional(),
   duration: z.number().min(0).optional(), // total ms
+  error: z.string().optional(), // why a run failed or stopped early
+  environmentName: z.string().optional(), // the environment the run used, if any
+  // Set when this run's p95 was well above recent comparable runs (see detectRegression).
+  regression: z
+    .object({ p95: z.number(), baselineP95: z.number(), comparedRuns: z.number().int() })
+    .optional(),
   createdAt: z.string().datetime(),
 });
 export type ExecutionRun = z.infer<typeof ExecutionRunSchema>;
 
-// --- WebSocket Execution Events ---
+/** A run without its step results (what history lists and run:finished carry). */
+export type RunSummary = Omit<ExecutionRun, 'results'>;
 
-export const ExecutionEventSchema = z.discriminatedUnion('type', [
-  z.object({
-    type: z.literal('run:started'),
-    runId: z.string().uuid(),
-    timestamp: z.string().datetime(),
-    totalSteps: z.number().int(),
-    totalIterations: z.number().int(),
-  }),
-  z.object({
-    type: z.literal('step:started'),
-    runId: z.string().uuid(),
-    stepId: z.string().uuid(),
-    stepName: z.string(),
-    iteration: z.number().int(),
-  }),
-  z.object({
-    type: z.literal('step:completed'),
-    runId: z.string().uuid(),
-    stepId: z.string().uuid(),
-    stepName: z.string(),
-    iteration: z.number().int(),
-    statusCode: z.number(),
-    responseTime: z.number(),
-    extractedData: z.record(z.string(), z.unknown()),
-    assertions: z.array(AssertionResultSchema),
-  }),
-  z.object({
-    type: z.literal('step:failed'),
-    runId: z.string().uuid(),
-    stepId: z.string().uuid(),
-    stepName: z.string(),
-    iteration: z.number().int(),
-    error: z.string(),
-    responseTime: z.number(),
-  }),
-  z.object({
-    type: z.literal('metrics:update'),
-    runId: z.string().uuid(),
-    metrics: AggregateMetricsSchema,
-  }),
-  z.object({
-    type: z.literal('run:completed'),
-    runId: z.string().uuid(),
-    duration: z.number(),
-    summary: AggregateMetricsSchema,
-  }),
-  z.object({
-    type: z.literal('run:failed'),
-    runId: z.string().uuid(),
-    error: z.string(),
-  }),
-]);
-export type ExecutionEvent = z.infer<typeof ExecutionEventSchema>;
+// --- Live run events (WebSocket) ---
+// A client that subscribes gets a `run:snapshot` first, so nothing emitted before it subscribed is lost.
+
+export type RunEvent =
+  | { type: 'run:snapshot'; runId: string; run: ExecutionRun }
+  | { type: 'run:started'; runId: string; totalSteps: number; totalIterations: number }
+  | { type: 'step:started'; runId: string; stepId: string; stepName: string; iteration: number; method: string }
+  | { type: 'step:finished'; runId: string; result: StepResult }
+  | { type: 'run:finished'; runId: string; run: RunSummary };

@@ -17,7 +17,7 @@ Thank you for your interest in contributing to Fortest. We welcome contributions
 Fortest uses a monorepo structure managed by `pnpm` and `turborepo`. Follow these steps to set up your environment:
 
 ### Prerequisites
-- Node.js >= 20.0.0
+- Node.js >= 20.3.0
 - PNPM (Package manager)
 
 ### Installation
@@ -33,7 +33,7 @@ Run the concurrent development servers for both the React frontend and the Expre
 pnpm dev
 ```
 - The frontend will be available at `http://localhost:5173`.
-- The backend API server will run at `http://localhost:3000`.
+- The backend API server will run at `http://localhost:3001`.
 
 ---
 
@@ -46,6 +46,9 @@ git checkout -b feature/your-feature-name
 # or
 git checkout -b bugfix/your-fix-name
 ```
+
+### Commit messages
+Use [conventional commit](https://www.conventionalcommits.org/) prefixes (`feat:`, `fix:`, `docs:`, `chore:`, …). They decide release version numbers and become the public release notes, so describe the change for users (see [RELEASING.md](RELEASING.md)).
 
 ### 2. Coding Guidelines
 - **CSS Styling**: We use Vanilla CSS styled with CSS variables (e.g. `var(--border-primary)`) to support multiple presets (Dracula, Cyberpunk, Nord, Monokai). Do not write inline hardcoded hex colors or install external styling frameworks like Tailwind unless coordinate changes explicitly require it.

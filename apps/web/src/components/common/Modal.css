@@ -1,0 +1,91 @@
+/* Native <dialog> shell: showModal() provides the backdrop, Esc, focus trap and inert page.
+   The dialog itself is a transparent full-width box; .modal-content is the visible card. */
+.modal {
+  margin: auto; /* the global reset zeroes the UA margin that centers dialogs */
+  width: 100%;
+  max-width: 100%;
+  padding: 16px;
+  border: none;
+  background: transparent;
+  color: inherit;
+  overflow: visible;
+}
+
+.modal::backdrop {
+  background-color: rgba(0, 0, 0, 0.4);
+  backdrop-filter: blur(2px);
+  animation: fadeIn 150ms ease-out;
+}
+
+body:has(.modal[open]) {
+  overflow: hidden;
+}
+
+.modal-content {
+  position: relative;
+  margin: 0 auto;
+  background-color: var(--bg-tertiary);
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  padding: 24px;
+  width: 100%;
+  max-width: 400px;
+  animation: slideUp 150ms ease-out;
+}
+
+.modal-title {
+  margin: 0 0 16px 0;
+  font-size: 16px;
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.modal-input {
+  width: 100%;
+  margin-bottom: 24px;
+  box-sizing: border-box;
+}
+
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes slideUp {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.modal-close-btn {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  background: transparent;
+  border: none;
+  color: var(--text-tertiary);
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 6px;
+  transition: color var(--transition-fast) ease, background-color var(--transition-fast) ease;
+  z-index: 20;
+}
+
+.modal-close-btn:hover:not(:disabled) {
+  color: var(--text-primary);
+  background-color: var(--bg-hover);
+}
+
+.modal-close-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}

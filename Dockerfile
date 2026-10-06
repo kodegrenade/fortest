@@ -1,7 +1,6 @@
 # Stage 1: Build the React client assets
 FROM node:20-alpine AS builder
-RUN npm install -g pnpm@8.15.7
-RUN pnpm config set manage-package-manager-versions false
+RUN corepack enable
 WORKDIR /app
 
 # Copy root configs
@@ -10,13 +9,14 @@ COPY package.json pnpm-lock.yaml pnpm-workspace.yaml turbo.json tsconfig.base.js
 # Copy package manifests for workspace installation caching
 COPY packages/types/package.json ./packages/types/
 COPY packages/utils/package.json ./packages/utils/
+COPY packages/engine/package.json ./packages/engine/
+COPY packages/cli/package.json ./packages/cli/
 COPY apps/api/package.json ./apps/api/
 COPY apps/web/package.json ./apps/web/
 
 RUN pnpm install --frozen-lockfile
 
-# Copy source code (cache-busted to ensure changes are copied)
-RUN echo "builder-cb-v3"
+# Copy source code
 COPY packages/ ./packages/
 COPY apps/ ./apps/
 
@@ -25,19 +25,19 @@ RUN pnpm --filter @fortest/web build
 
 # Stage 2: Runner image
 FROM node:20-alpine AS runner
-RUN npm install -g pnpm@8.15.7
-RUN pnpm config set manage-package-manager-versions false
+LABEL org.opencontainers.image.source="https://github.com/kodegrenade/fortest" \
+      org.opencontainers.image.description="Fortest: API flow testing app and CLI" \
+      org.opencontainers.image.licenses="MIT"
+RUN corepack enable
 WORKDIR /app
 
 # Copy workspace root manifests
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml turbo.json tsconfig.base.json ./
 
-# Copy shared packages
-COPY packages/types ./packages/types
-COPY packages/utils ./packages/utils
+# Copy shared packages (types, utils, the engine and the CLI)
+COPY packages ./packages
 
-# Copy API backend (cache-busted to ensure package.json dependencies update)
-RUN echo "runner-cb-v3"
+# Copy API backend
 COPY apps/api ./apps/api
 
 # Copy web manifest and built dist assets
@@ -49,7 +49,12 @@ RUN pnpm install --prod --frozen-lockfile
 
 ENV NODE_ENV=production
 ENV PORT=3001
+# Listen on the container's own interfaces; who can reach it is decided by the port mapping
+# (publish it on 127.0.0.1 only: `-p 127.0.0.1:3001:3001`).
+ENV HOST=0.0.0.0
 
 EXPOSE 3001
 
-CMD ["npx", "tsx", "apps/api/src/server.ts"]
+# `docker run fortest` serves the app; `docker run fortest run /work/bucket.yaml` runs the CLI.
+ENTRYPOINT ["apps/api/node_modules/.bin/tsx", "apps/api/src/cli.ts"]
+CMD ["serve"]

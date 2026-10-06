@@ -60,32 +60,3 @@ export const AuthConfigSchema = z.object({
     .optional(),
 });
 export type AuthConfig = z.infer<typeof AuthConfigSchema>;
-
-// --- Request ---
-
-export const ForTestRequestSchema = z.object({
-  id: z.string().uuid(),
-  name: z.string().min(1),
-  method: HttpMethodSchema.default('GET'),
-  url: z.string(),
-  headers: z.array(KeyValuePairSchema).default([]),
-  params: z.array(KeyValuePairSchema).default([]),
-  body: RequestBodySchema.default({ type: 'none', content: '' }),
-  auth: AuthConfigSchema.default({ type: 'none' }),
-  createdAt: z.string().datetime(),
-  updatedAt: z.string().datetime(),
-});
-export type ForTestRequest = z.infer<typeof ForTestRequestSchema>;
-
-// --- Response ---
-
-export const ForTestResponseSchema = z.object({
-  status: z.number(),
-  statusText: z.string(),
-  headers: z.record(z.string(), z.string()),
-  body: z.string(),
-  size: z.number(),
-  time: z.number(),
-  contentType: z.string(),
-});
-export type ForTestResponse = z.infer<typeof ForTestResponseSchema>;

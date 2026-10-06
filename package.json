@@ -8,15 +8,18 @@
     "build": "turbo build",
     "lint": "turbo lint",
     "typecheck": "turbo typecheck",
+    "test": "turbo test",
+    "fortest": "tsx apps/api/src/cli.ts",
     "clean": "turbo clean"
   },
   "devDependencies": {
+    "prettier": "^3.5.0",
+    "tsx": "^4.19.0",
     "turbo": "^2.5.0",
-    "typescript": "^5.8.0",
-    "prettier": "^3.5.0"
+    "typescript": "^5.8.0"
   },
   "packageManager": "pnpm@9.15.0",
   "engines": {
-    "node": ">=20.0.0"
+    "node": ">=20.3.0"
   }
 }

@@ -47,15 +47,15 @@ export function VariableInput({
   // Compile all available suggestions
   const suggestions: SuggestionOption[] = [];
 
-  // 1. Bucket Variables
-  for (const v of variables) {
-    if (!v.enabled || !v.key) continue;
+  // 1. Bucket + environment variables; for a key set in both, the later (environment) value wins.
+  const effective = new Map(variables.filter((v) => v.enabled && v.key).map((v) => [v.key, v]));
+  for (const v of effective.values()) {
     suggestions.push({
       key: v.key,
       label: v.key,
       source: 'env',
       sourceName: 'Global',
-      detail: v.value ? `Value: ${v.value}` : 'Empty',
+      detail: v.secret ? 'Secret value' : v.value ? `Value: ${v.value}` : 'Empty',
     });
   }
 

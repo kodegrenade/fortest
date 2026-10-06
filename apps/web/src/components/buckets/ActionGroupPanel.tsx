@@ -59,11 +59,8 @@ export function ActionGroupPanel() {
   // Auto-select the first step if no step is active but steps exist
   useEffect(() => {
     if (group && group.steps.length > 0 && !activeStepId) {
-      // Find the first step in order
-      const sorted = [...group.steps].sort((a, b) => a.order - b.order);
-      if (sorted[0]) {
-        setActiveStep(sorted[0].id);
-      }
+      const first = group.steps.reduce((a, b) => (b.order < a.order ? b : a));
+      setActiveStep(first.id);
     }
   }, [group, activeStepId, setActiveStep]);
 
@@ -72,19 +69,17 @@ export function ActionGroupPanel() {
   const sortedSteps = [...group.steps].sort((a, b) => a.order - b.order);
 
   const handleCreateStepConfirm = async (name: string) => {
-    if (bucket && group) {
-      try {
-        await addStep(bucket.id, group.id, name);
-        addToast(`Step "${name}" added successfully`, 'success');
-      } catch (err: any) {
-        addToast(err.message || 'Failed to add step', 'error');
-      }
+    try {
+      await addStep(bucket.id, group.id, name);
+      addToast(`Step "${name}" added successfully`, 'success');
+    } catch (err: any) {
+      addToast(err.message || 'Failed to add step', 'error');
     }
     setDialogState({ type: null });
   };
 
   const handleDeleteStepConfirm = async () => {
-    if (dialogState.stepId && bucket && group) {
+    if (dialogState.stepId) {
       try {
         await deleteStep(bucket.id, group.id, dialogState.stepId);
         addToast('Step deleted successfully', 'success');
@@ -96,13 +91,11 @@ export function ActionGroupPanel() {
   };
 
   const handleDuplicateStep = async (stepId: string, stepName: string) => {
-    if (bucket && group) {
-      try {
-        await duplicateStep(bucket.id, group.id, stepId);
-        addToast(`Step "${stepName}" duplicated successfully`, 'success');
-      } catch (err: any) {
-        addToast(err.message || 'Failed to duplicate step', 'error');
-      }
+    try {
+      await duplicateStep(bucket.id, group.id, stepId);
+      addToast(`Step "${stepName}" duplicated successfully`, 'success');
+    } catch (err: any) {
+      addToast(err.message || 'Failed to duplicate step', 'error');
     }
   };
 
@@ -319,6 +312,15 @@ export function ActionGroupPanel() {
                               {step.method}
                             </span>
                             <span className="step-node__name">{step.name}</span>
+                            {step.retry && (
+                              <span
+                                className="badge"
+                                title={`Retries until it passes: up to ${step.retry.maxAttempts} attempts, every ${step.retry.intervalMs} ms`}
+                                style={{ fontSize: '10px', color: 'var(--accent-primary)', backgroundColor: 'var(--accent-subtle)', border: 'none' }}
+                              >
+                                ↻ {step.retry.maxAttempts}×
+                              </span>
+                            )}
                           </div>
                           <span className="step-node__path">{step.path}</span>
                         </div>
@@ -392,7 +394,6 @@ export function ActionGroupPanel() {
       {/* Dialogs */}
       {dialogState.type === 'createStep' && (
         <PromptDialog
-          isOpen={true}
           title="Create Test Step"
           placeholder="Step Name (e.g. GET Profile)"
           submitText="Create"
@@ -403,7 +404,6 @@ export function ActionGroupPanel() {
 
       {dialogState.type === 'deleteStep' && (
         <ConfirmDialog
-          isOpen={true}
           title="Delete Test Step"
           message="Are you sure you want to delete this test step from the action group?"
           confirmText="Delete"
@@ -415,7 +415,6 @@ export function ActionGroupPanel() {
 
       {isRunConfigOpen && (
         <RunConfigModal
-          isOpen={true}
           bucketId={bucket.id}
           groupId={group.id}
           onClose={() => setIsRunConfigOpen(false)}

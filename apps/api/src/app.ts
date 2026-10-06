@@ -1,10 +1,9 @@
 import path from 'path';
 import express, { type Request, type Response, type NextFunction } from 'express';
-import cors from 'cors';
 import helmet from 'helmet';
-import rateLimit from 'express-rate-limit';
+import { ZodError } from 'zod';
 import type { ApiError } from '@fortest/types';
-import proxyRouter from './routes/proxy';
+import { localOnly } from './middleware/security';
 import healthRouter from './routes/health';
 import bucketsRouter from './routes/buckets';
 import runsRouter from './routes/runs';
@@ -13,35 +12,14 @@ const app: express.Application = express();
 
 // --- Middleware ---
 
-app.use(
-  cors({
-    origin: ['http://localhost:5173'],
-    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization'],
-  }),
-);
+app.use(localOnly);
 
 app.use(helmet());
 
 app.use(express.json({ limit: '10mb' }));
 
-app.use(
-  rateLimit({
-    windowMs: 60 * 1000,
-    limit: 100,
-    standardHeaders: 'draft-7',
-    legacyHeaders: false,
-    message: {
-      error: 'Too Many Requests',
-      message: 'Rate limit exceeded. Try again in a minute.',
-      statusCode: 429,
-    } satisfies ApiError,
-  }),
-);
-
 // --- Routes ---
 
-app.use('/api/proxy', proxyRouter);
 app.use('/api/health', healthRouter);
 app.use('/api/buckets', bucketsRouter);
 app.use('/api/runs', runsRouter);
@@ -63,6 +41,16 @@ if (process.env['NODE_ENV'] === 'production') {
 // Express 5 forwards async rejections here automatically
 
 app.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {
+  if (err instanceof ZodError) {
+    const error: ApiError = {
+      error: 'Validation Error',
+      message: err.errors.map((e) => `${e.path.join('.') || 'body'}: ${e.message}`).join('; '),
+      statusCode: 400,
+    };
+    res.status(400).json(error);
+    return;
+  }
+
   console.error('[Error]', err.message);
 
   const error: ApiError = {

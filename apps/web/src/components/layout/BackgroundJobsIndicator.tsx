@@ -1,17 +1,18 @@
 import { useState, useRef, useEffect } from 'react';
-import { useExecutionStore, BackgroundJob } from '@/stores/executionStore';
+import { useExecutionStore, type BackgroundJob } from '@/stores/executionStore';
+import { TONE_COLOR, runTone, toneBadge } from '@/utils/results';
 import { useBucketStore } from '@/stores/bucketStore';
 import { PlayIcon, CheckCircleIcon, XIcon, AlertCircleIcon, LayersIcon } from '../common/Icons';
 
 export function BackgroundJobsIndicator() {
-  const { backgroundJobs, viewHistoricalRun, removeBackgroundJob } = useExecutionStore();
+  const { backgroundJobs, viewHistoricalRun, removeBackgroundJob, cancelRun } = useExecutionStore();
   const { setActiveBucket, setActiveGroup } = useBucketStore();
   const [isOpen, setIsOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
   const activeJobs = backgroundJobs.filter((j) => j.status === 'running');
 
-  // Close dropdown on click outside & lock background scroll
+  // Close dropdown on click outside
   useEffect(() => {
     const handleOutsideClick = (e: MouseEvent) => {
       if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
@@ -20,13 +21,9 @@ export function BackgroundJobsIndicator() {
     };
     if (isOpen) {
       document.addEventListener('mousedown', handleOutsideClick);
-      document.body.style.overflow = 'hidden';
-    } else {
-      document.body.style.overflow = '';
     }
     return () => {
       document.removeEventListener('mousedown', handleOutsideClick);
-      document.body.style.overflow = '';
     };
   }, [isOpen]);
 
@@ -35,17 +32,6 @@ export function BackgroundJobsIndicator() {
     setActiveGroup(job.actionGroupId);
     await viewHistoricalRun(job.runId);
     setIsOpen(false);
-  };
-
-  const getStatusColor = (status: BackgroundJob['status']) => {
-    switch (status) {
-      case 'running':
-        return 'var(--accent-primary)';
-      case 'completed':
-        return 'var(--status-2xx)';
-      case 'failed':
-        return 'var(--status-5xx)';
-    }
   };
 
   return (
@@ -99,7 +85,7 @@ export function BackgroundJobsIndicator() {
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: '1px solid var(--border-primary)', paddingBottom: '8px' }}>
             <span style={{ fontWeight: 600, fontSize: '13px', color: 'var(--text-primary)' }}>Background Runs</span>
             {activeJobs.length > 0 && (
-              <span className="badge" style={{ backgroundColor: 'var(--accent-primary)15', color: 'var(--accent-primary)', fontSize: '10px' }}>
+              <span className="badge" style={{ ...toneBadge('running', 8), border: 'none', fontSize: '10px' }}>
                 {activeJobs.length} active
               </span>
             )}
@@ -149,7 +135,7 @@ export function BackgroundJobsIndicator() {
                           width: '6px',
                           height: '6px',
                           borderRadius: '50%',
-                          backgroundColor: getStatusColor(job.status),
+                          backgroundColor: TONE_COLOR[runTone(job.status)],
                         }}
                       />
                       <button
@@ -187,6 +173,14 @@ export function BackgroundJobsIndicator() {
                         <span>{job.progress}% Complete</span>
                         <span>{job.completedSteps}/{job.totalSteps} steps</span>
                       </div>
+                      <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '4px' }}>
+                        <button type="button" className="btn btn--ghost" style={{ fontSize: '10px', padding: '2px 6px', height: 'auto', color: 'var(--status-5xx)' }} onClick={() => cancelRun(job.runId)}>
+                          Stop
+                        </button>
+                        <button type="button" className="btn btn--ghost" style={{ fontSize: '10px', padding: '2px 6px', height: 'auto' }} onClick={() => handleInspect(job)}>
+                          Inspect
+                        </button>
+                      </div>
                     </div>
                   ) : (
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: '2px' }}>
@@ -194,7 +188,7 @@ export function BackgroundJobsIndicator() {
                         style={{
                           fontSize: '10px',
                           fontWeight: 500,
-                          color: job.status === 'completed' ? 'var(--status-2xx)' : 'var(--status-5xx)',
+                          color: TONE_COLOR[runTone(job.status)],
                           display: 'flex',
                           alignItems: 'center',
                           gap: '3px',
@@ -206,7 +200,7 @@ export function BackgroundJobsIndicator() {
                           </>
                         ) : (
                           <>
-                            <AlertCircleIcon size={10} /> Failed
+                            <AlertCircleIcon size={10} /> {job.status === 'cancelled' ? 'Cancelled' : 'Failed'}
                           </>
                         )}
                       </span>

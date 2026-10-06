@@ -1,71 +1,86 @@
-import crypto from 'crypto';
 import { getBucketById } from './bucketService';
 import { getStorageAdapter } from './storage';
-import { interpolate } from '@fortest/utils';
-import { validateTargetUrl } from '../middleware/security';
-import { extractValue } from './extractionService';
-import { evaluateAssertions } from './assertionService';
+import { executeGroup, resolveConfig } from '@fortest/engine';
+import { activeEnvironment, detectRegression } from '@fortest/utils';
 import type {
   StepResult,
   ExecutionRun,
-  BucketVariable,
-  ProxyResponse,
-  AuthConfig,
   ExecutionConfig,
+  RunEvent,
+  RunSummary,
 } from '@fortest/types';
 
-/**
- * Retrieves a historical or active execution run by ID.
- */
+// Storage layout: run:<id> holds the summary (rewritten as the run progresses), run:<id>:results
+// is a list the runner appends each step result to, runs:active indexes runs still in progress.
+const runKey = (id: string) => `run:${id}`;
+const resultsKey = (id: string) => `run:${id}:results`;
+const ACTIVE_RUNS = 'runs:active';
+
+// Runs executing in this process, so they can be cancelled.
+const activeRuns = new Map<string, AbortController>();
+
+async function readRun(runId: string): Promise<ExecutionRun | null> {
+  const data = await getStorageAdapter().get(runKey(runId));
+  return data ? (JSON.parse(data) as ExecutionRun) : null;
+}
+
+/** A run without its step results (cheap: used for history lists). */
+export async function getRunSummary(runId: string): Promise<RunSummary | null> {
+  const run = await readRun(runId);
+  if (!run) return null;
+  const { results: _legacyResults, ...summary } = run;
+  return summary;
+}
+
+/** A run with all its stored step results. */
 export async function getRunById(runId: string): Promise<ExecutionRun | null> {
+  const run = await readRun(runId);
+  if (!run) return null;
+  const stored = await getStorageAdapter().lrange(resultsKey(runId), 0, -1);
+  // Runs saved before results moved to their own list kept them inline.
+  return {
+    ...run,
+    results: stored.length ? stored.map((r) => JSON.parse(r) as StepResult) : (run.results ?? []),
+  };
+}
+
+async function saveSummary(run: RunSummary): Promise<void> {
+  await getStorageAdapter().set(runKey(run.id), JSON.stringify(run));
+}
+
+/** Stops a run in progress. False if it isn't running in this process. */
+export function cancelRun(runId: string): boolean {
+  activeRuns.get(runId)?.abort();
+  return activeRuns.has(runId);
+}
+
+/** Runs left "running" by a crash or restart can never finish: mark them failed. Call at startup. */
+export async function failOrphanedRuns(): Promise<void> {
   const adapter = getStorageAdapter();
-  const data = await adapter.get(`run:${runId}`);
-  if (!data) return null;
-  try {
-    return JSON.parse(data) as ExecutionRun;
-  } catch {
-    return null;
+  for (const runId of await adapter.smembers(ACTIVE_RUNS)) {
+    const run = await getRunSummary(runId);
+    if (run?.status === 'running') {
+      await saveSummary({
+        ...run,
+        status: 'failed',
+        error: 'Interrupted: the server stopped while this run was in progress.',
+        completedAt: new Date().toISOString(),
+      });
+    }
+    await adapter.srem(ACTIVE_RUNS, runId);
   }
 }
 
 /**
- * Saves or updates an execution run.
- */
-export async function saveRun(run: ExecutionRun): Promise<void> {
-  const adapter = getStorageAdapter();
-  await adapter.set(`run:${run.id}`, JSON.stringify(run));
-}
-
-/**
- * Helper to build authorization headers based on AuthConfig and active variables.
- */
-function resolveAuthHeaders(auth: AuthConfig, variables: BucketVariable[]): Record<string, string> {
-  const headers: Record<string, string> = {};
-  if (auth.type === 'bearer' && auth.bearer?.token) {
-    const token = interpolate(auth.bearer.token, variables).resolved;
-    headers['Authorization'] = `Bearer ${token}`;
-  } else if (auth.type === 'basic' && auth.basic) {
-    const username = interpolate(auth.basic.username, variables).resolved;
-    const password = interpolate(auth.basic.password, variables).resolved;
-    const credentials = Buffer.from(`${username}:${password}`).toString('base64');
-    headers['Authorization'] = `Basic ${credentials}`;
-  } else if (auth.type === 'api-key' && auth.apiKey && auth.apiKey.addTo === 'header') {
-    const key = interpolate(auth.apiKey.key, variables).resolved;
-    const value = interpolate(auth.apiKey.value, variables).resolved;
-    headers[key] = value;
-  }
-  return headers;
-}
-
-/**
- * Orchestrates step execution loop for an ActionGroup.
+ * Runs an action group as a stored run: persists the summary and each result, streams events,
+ * and can be cancelled with cancelRun().
  */
 export async function runGroup(
   bucketId: string,
   groupId: string,
   runId: string,
   inputConfig: Partial<ExecutionConfig> | undefined,
-  emitEvent: (event: any) => void
+  emitEvent: (event: RunEvent) => void,
 ): Promise<void> {
   const bucket = await getBucketById(bucketId);
   if (!bucket) {
@@ -77,377 +92,52 @@ export async function runGroup(
     throw new Error(`Action Group not found: ${groupId}`);
   }
 
-  const config: ExecutionConfig = {
-    mode: inputConfig?.mode || (inputConfig?.iterations && inputConfig.iterations > 1 ? 'load' : 'manual'),
-    iterations: inputConfig?.iterations || 1,
-    concurrency: inputConfig?.concurrency || 1,
-    delayBetweenSteps: inputConfig?.delayBetweenSteps || 0,
-    useDataStore: inputConfig?.useDataStore || false,
-  };
-
-  const run: ExecutionRun = {
+  const config = resolveConfig(inputConfig);
+  const run: RunSummary = {
     id: runId,
     bucketId,
     actionGroupId: groupId,
     actionGroupName: group.name,
+    environmentName: activeEnvironment(bucket)?.name,
     config,
     status: 'running',
-    results: [],
     startedAt: new Date().toISOString(),
     createdAt: new Date().toISOString(),
   };
 
-  await saveRun(run);
-
-  // Associate run with action group history
-  const runsKey = `group:${groupId}:runs`;
   const adapter = getStorageAdapter();
-  await adapter.zadd(runsKey, Date.now(), runId);
+  await saveSummary(run);
+  await adapter.sadd(ACTIVE_RUNS, runId);
+  await adapter.zadd(`group:${groupId}:runs`, Date.now(), runId);
 
-  // Give the WebSocket client a moment to connect and subscribe
-  await new Promise((resolve) => setTimeout(resolve, 100));
-
-  emitEvent({
-    type: 'run:started',
-    runId,
-    timestamp: new Date().toISOString(),
-    totalSteps: group.steps.length,
-    totalIterations: config.iterations,
-  });
-
+  const controller = new AbortController();
+  activeRuns.set(runId, controller);
   const startTime = performance.now();
 
-  const totalIterations = config.iterations;
-  const maxConcurrency = Math.min(config.concurrency, totalIterations);
-  const delay = config.delayBetweenSteps;
-
-  const queue: number[] = Array.from({ length: totalIterations }, (_, i) => i + 1);
-
-  const runSingleIteration = async (iterNum: number) => {
-    // 1. Independent variable context for this iteration
-    const iterVariables: BucketVariable[] = [...(bucket.variables || [])];
-
-    // 2. Inject Data Store record if enabled
-    if (config.useDataStore && group.dataStore && group.dataStore.records.length > 0) {
-      const records = group.dataStore.records;
-      const record = records[(iterNum - 1) % records.length];
-      if (record) {
-        for (const [key, val] of Object.entries(record)) {
-          iterVariables.push({
-            id: crypto.randomUUID(),
-            key,
-            value: typeof val === 'object' && val !== null ? JSON.stringify(val) : String(val),
-            enabled: true,
-          });
-        }
-      }
-    }
-
-    const sortedSteps = [...group.steps].sort((a, b) => a.order - b.order);
-
-    for (const step of sortedSteps) {
-      const stepStartTime = performance.now();
-      let finalUrl = '';
-      let finalBody: string | undefined = undefined;
-
-      emitEvent({
-        type: 'step:started',
-        runId,
-        stepId: step.id,
-        stepName: step.name,
-        iteration: iterNum,
-      });
-
-      try {
-        // 1. Resolve interpolation context
-        const resPath = interpolate(step.path || '', iterVariables).resolved;
-        
-        // Resolve Query parameters
-        const resolvedParams: string[] = [];
-        for (const p of step.params || []) {
-          if (!p.enabled) continue;
-          const resKey = interpolate(p.key, iterVariables).resolved;
-          const resVal = interpolate(p.value, iterVariables).resolved;
-          resolvedParams.push(`${encodeURIComponent(resKey)}=${encodeURIComponent(resVal)}`);
-        }
-
-        // Add query param auth if applicable
-        const activeAuth = step.auth && step.auth.type !== 'none' ? step.auth : bucket.auth;
-        if (activeAuth.type === 'api-key' && activeAuth.apiKey && activeAuth.apiKey.addTo === 'query') {
-          const key = interpolate(activeAuth.apiKey.key, iterVariables).resolved;
-          const value = interpolate(activeAuth.apiKey.value, iterVariables).resolved;
-          resolvedParams.push(`${encodeURIComponent(key)}=${encodeURIComponent(value)}`);
-        }
-
-        let finalPath = resPath;
-        if (resolvedParams.length > 0) {
-          finalPath += (finalPath.includes('?') ? '&' : '?') + resolvedParams.join('&');
-        }
-
-        const resBaseUrl = interpolate(bucket.baseUrl || '', iterVariables).resolved;
-        finalUrl = resBaseUrl;
-        if (finalUrl && !finalUrl.endsWith('/') && !finalPath.startsWith('/')) {
-          finalUrl += '/';
-        }
-        finalUrl += finalPath;
-
-        // 2. Validate URL against SSRF
-        const isSafeUrl = await validateTargetUrl(finalUrl);
-        if (!isSafeUrl) {
-          throw new Error(`SSRF Blocked: URL target is loopback/private IP: ${finalUrl}`);
-        }
-
-        // 3. Resolve request headers
-        const resolvedHeaders: Record<string, string> = {};
-        for (const h of step.headers || []) {
-          if (!h.enabled) continue;
-          const resKey = interpolate(h.key, iterVariables).resolved;
-          const resVal = interpolate(h.value, iterVariables).resolved;
-          resolvedHeaders[resKey] = resVal;
-        }
-
-        // Merge auth headers
-        const authHeaders = resolveAuthHeaders(activeAuth, iterVariables);
-        Object.assign(resolvedHeaders, authHeaders);
-
-        // Default JSON content type if JSON body
-        if (step.body && step.body.type === 'json' && !resolvedHeaders['content-type']) {
-          resolvedHeaders['content-type'] = 'application/json';
-        }
-
-        // 4. Resolve Body Content
-        finalBody = undefined;
-        if (step.body && step.body.type !== 'none') {
-          finalBody = interpolate(step.body.content, iterVariables).resolved;
-        }
-
-        // 5. Execute HTTP Request
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 10000);
-
-        let fetchResponse: Response;
-        try {
-          fetchResponse = await fetch(finalUrl, {
-            method: step.method,
-            headers: resolvedHeaders,
-            body: finalBody ?? undefined,
-            signal: controller.signal,
-            redirect: 'follow',
-          });
-        } finally {
-          clearTimeout(timeoutId);
-        }
-
-        const stepElapsed = performance.now() - stepStartTime;
-        const responseBody = await fetchResponse.text();
-
-        const responseHeaders: Record<string, string> = {};
-        fetchResponse.headers.forEach((val, key) => {
-          responseHeaders[key] = val;
-        });
-
-        const contentType = responseHeaders['content-type'] ?? 'application/octet-stream';
-
-        const proxyResponse: ProxyResponse = {
-          status: fetchResponse.status,
-          statusText: fetchResponse.statusText,
-          headers: responseHeaders,
-          body: responseBody,
-          size: new TextEncoder().encode(responseBody).byteLength,
-          time: Math.round(stepElapsed),
-          contentType,
-        };
-
-        // 6. Perform Extractions
-        const extractedData: Record<string, any> = {};
-        for (const rule of step.extractions || []) {
-          if (!rule.variableName || !rule.selector) continue;
-          const value = extractValue(proxyResponse, rule.source, rule.selector);
-          extractedData[rule.variableName] = value;
-          // Inject into current iteration variable context for downstream steps
-          iterVariables.push({
-            id: crypto.randomUUID(),
-            key: `steps.${step.name}.${rule.variableName}`,
-            value: value || '',
-            enabled: true,
-          });
-        }
-
-        // 7. Evaluate Assertions
-        const assertionResults = evaluateAssertions(proxyResponse, step.assertions || []);
-
-        // 8. Construct Step Result
-        const stepResult: StepResult = {
-          stepId: step.id,
-          stepName: step.name,
-          iteration: iterNum,
-          status: fetchResponse.status,
-          statusText: fetchResponse.statusText,
-          responseTime: Math.round(stepElapsed),
-          responseSize: proxyResponse.size,
-          responseHeaders,
-          responseBody,
-          contentType,
-          extractedData,
-          assertions: assertionResults,
-          requestBody: finalBody,
-          timestamp: new Date().toISOString(),
-          url: finalUrl,
-          method: step.method,
-        };
-
-        run.results.push(stepResult);
-        await saveRun(run);
-
-        emitEvent({
-          type: 'step:completed',
-          runId,
-          stepId: step.id,
-          stepName: step.name,
-          iteration: iterNum,
-          statusCode: fetchResponse.status,
-          responseTime: Math.round(stepElapsed),
-          extractedData,
-          assertions: assertionResults,
-          url: finalUrl,
-          method: step.method,
-        });
-      } catch (stepErr: any) {
-        const stepElapsed = performance.now() - stepStartTime;
-        const stepResult: StepResult = {
-          stepId: step.id,
-          stepName: step.name,
-          iteration: iterNum,
-          status: 0,
-          statusText: 'Failed',
-          responseTime: Math.round(stepElapsed),
-          responseSize: 0,
-          responseHeaders: {},
-          responseBody: '',
-          contentType: 'text/plain',
-          extractedData: {},
-          assertions: [],
-          error: stepErr.message || 'Unknown network or execution error',
-          requestBody: finalBody,
-          timestamp: new Date().toISOString(),
-          url: finalUrl || step.path || '',
-          method: step.method,
-        };
-
-        run.results.push(stepResult);
-        await saveRun(run);
-
-        emitEvent({
-          type: 'step:failed',
-          runId,
-          stepId: step.id,
-          stepName: step.name,
-          iteration: iterNum,
-          error: stepErr.message || 'Unknown network or execution error',
-          responseTime: Math.round(stepElapsed),
-          url: finalUrl || step.path || '',
-          method: step.method,
-        });
-
-        // Break out of steps loop for this iteration
-        return;
-      }
-
-      // Delay between steps within one iteration
-      if (delay > 0) {
-        await new Promise((resolve) => setTimeout(resolve, delay));
-      }
-    }
-  };
-
-  const runNextIteration = async (): Promise<void> => {
-    if (queue.length === 0) return;
-    const iterNum = queue.shift()!;
-    try {
-      await runSingleIteration(iterNum);
-    } catch (err) {
-      console.error(`Error executing iteration ${iterNum}:`, err);
-    }
-    await runNextIteration();
-  };
-
   try {
-    // Spawn maxConcurrency parallel consumer flows
-    const workers: Promise<void>[] = [];
-    for (let w = 0; w < maxConcurrency; w++) {
-      workers.push(runNextIteration());
-    }
-    await Promise.all(workers);
-
-    // After all iterations are complete:
-    const duration = performance.now() - startTime;
-    run.status = 'completed';
-    run.completedAt = new Date().toISOString();
-    run.duration = Math.round(duration);
-
-    // Compute aggregate metrics
-    const totalRequests = run.results.length;
-    const failed = run.results.filter(
-      (r) => r.status >= 400 || r.status === 0 || r.error || r.assertions.some((a) => !a.passed)
-    ).length;
-    const completed = totalRequests - failed;
-
-    const latencies = run.results.map((r) => r.responseTime).sort((a, b) => a - b);
-    const avgLatency = totalRequests > 0 ? latencies.reduce((acc, l) => acc + l, 0) / totalRequests : 0;
-
-    const getPercentile = (sorted: number[], p: number): number => {
-      if (sorted.length === 0) return 0;
-      const idx = Math.ceil((p / 100) * sorted.length) - 1;
-      return sorted[idx] ?? 0;
-    };
-
-    run.metrics = {
-      totalRequests,
-      completed,
-      failed,
-      avgLatency,
-      minLatency: latencies.length > 0 ? latencies[0]! : 0,
-      maxLatency: latencies.length > 0 ? latencies[latencies.length - 1]! : 0,
-      p50: getPercentile(latencies, 50),
-      p95: getPercentile(latencies, 95),
-      p99: getPercentile(latencies, 99),
-      throughputPerSec: duration > 0 ? (totalRequests / duration) * 1000 : 0,
-      errorRate: totalRequests > 0 ? (failed / totalRequests) * 100 : 0,
-      totalDataTransferred: run.results.reduce((acc, r) => acc + r.responseSize, 0),
-    };
-
-    await saveRun(run);
-
-    emitEvent({
-      type: 'run:completed',
+    const outcome = await executeGroup(bucket, group, {
       runId,
-      summary: {
-        totalRequests,
-        completed,
-        failed,
-      },
-      duration: Math.round(duration),
+      config,
+      signal: controller.signal,
+      emit: emitEvent,
+      onResult: (result) => adapter.rpush(resultsKey(runId), JSON.stringify(result)),
     });
-
-    // Trim old runs in background
-    trimOldRuns(groupId).catch((e) => console.error('Error trimming runs:', e));
-
-  } catch (err: any) {
-    const elapsed = performance.now() - startTime;
+    run.status = outcome.status;
+    run.metrics = outcome.metrics;
+    if (outcome.status === 'cancelled') run.error = 'Cancelled by user';
+    // Only full runs are judged: a cancelled run's p95 says little.
+    else run.regression = detectRegression(run, await getGroupRuns(groupId));
+  } catch (err) {
     console.error(`Execution failed for run ${runId}`, err);
-
     run.status = 'failed';
+    run.error = err instanceof Error ? err.message : 'Unknown execution error';
+  } finally {
+    activeRuns.delete(runId);
     run.completedAt = new Date().toISOString();
-    run.duration = Math.round(elapsed);
-    await saveRun(run);
-
-    emitEvent({
-      type: 'run:failed',
-      runId,
-      error: err.message || 'Unknown execution error',
-    });
-
-    // Trim old runs in background
+    run.duration = Math.round(performance.now() - startTime);
+    await saveSummary(run);
+    await adapter.srem(ACTIVE_RUNS, runId);
+    emitEvent({ type: 'run:finished', runId, run });
     trimOldRuns(groupId).catch((e) => console.error('Error trimming runs:', e));
   }
 }
@@ -466,7 +156,8 @@ async function trimOldRuns(groupId: string): Promise<void> {
       // Index 50 to -1 are the 51st and older runs.
       const runsToRemove = await adapter.zrevrange(runsKey, limit, -1);
       for (const oldId of runsToRemove) {
-        await adapter.del(`run:${oldId}`);
+        await adapter.del(runKey(oldId));
+        await adapter.del(resultsKey(oldId));
       }
       // Trim sorted set: remove the oldest (ranks 0 to count - limit - 1)
       await adapter.zremrangebyrank(runsKey, 0, count - limit - 1);
@@ -477,20 +168,10 @@ async function trimOldRuns(groupId: string): Promise<void> {
 }
 
 /**
- * Retrieves the historical runs list for an Action Group, excluding detailed step results for speed.
+ * The history list for an Action Group, newest first: summaries only, no step results.
  */
-export async function getGroupRuns(groupId: string): Promise<any[]> {
-  const adapter = getStorageAdapter();
-  const runsKey = `group:${groupId}:runs`;
-  const runIds = await adapter.zrevrange(runsKey, 0, -1);
-
-  const runsList = [];
-  for (const runId of runIds) {
-    const run = await getRunById(runId);
-    if (run) {
-      const { results, ...summary } = run;
-      runsList.push(summary);
-    }
-  }
-  return runsList;
+export async function getGroupRuns(groupId: string): Promise<RunSummary[]> {
+  const runIds = await getStorageAdapter().zrevrange(`group:${groupId}:runs`, 0, -1);
+  const summaries = await Promise.all(runIds.map(getRunSummary));
+  return summaries.filter((r): r is RunSummary => r !== null);
 }

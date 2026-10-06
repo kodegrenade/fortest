@@ -1,8 +1,12 @@
-import { v4 as uuidv4 } from 'uuid';
+import { randomUUID } from 'node:crypto';
 import { TestBucketSchema, type TestBucket } from '@fortest/types';
 import { getStorageAdapter } from './storage';
 
 const INDEX_KEY = 'buckets:index';
+
+// Buckets saved before newer fields existed lack them; fill in their defaults on read.
+const withDefaults = (stored: Partial<TestBucket>) =>
+  ({ environments: [], activeEnvironmentId: null, ...stored }) as TestBucket;
 
 function getBucketKey(id: string): string {
   return `bucket:${id}`;
@@ -18,7 +22,7 @@ export async function getAllBuckets(): Promise<TestBucket[]> {
     if (data) {
       try {
         const parsed: unknown = JSON.parse(data);
-        buckets.push(parsed as TestBucket);
+        buckets.push(withDefaults(parsed as TestBucket));
       } catch (err) {
         console.error(`Failed to parse bucket ${id}`, err);
       }
@@ -34,7 +38,7 @@ export async function getBucketById(id: string): Promise<TestBucket | null> {
   if (!data) return null;
 
   try {
-    return JSON.parse(data) as TestBucket;
+    return withDefaults(JSON.parse(data) as TestBucket);
   } catch (err) {
     console.error(`Failed to parse bucket ${id}`, err);
     return null;
@@ -43,7 +47,7 @@ export async function getBucketById(id: string): Promise<TestBucket | null> {
 
 export async function createBucket(name: string, baseUrl?: string): Promise<TestBucket> {
   const adapter = getStorageAdapter();
-  const id = uuidv4();
+  const id = randomUUID();
   const now = new Date().toISOString();
 
   const newBucket: TestBucket = {
@@ -53,6 +57,8 @@ export async function createBucket(name: string, baseUrl?: string): Promise<Test
     auth: { type: 'none' },
     variables: [],
     actionGroups: [],
+    environments: [],
+    activeEnvironmentId: null,
     createdAt: now,
     updatedAt: now,
   };
@@ -66,22 +72,23 @@ export async function createBucket(name: string, baseUrl?: string): Promise<Test
   return newBucket;
 }
 
-export async function updateBucket(id: string, updates: Partial<TestBucket>): Promise<TestBucket | null> {
+export async function updateBucket(
+  id: string,
+  updates: Partial<TestBucket>,
+): Promise<TestBucket | null> {
   const adapter = getStorageAdapter();
   const existingData = await adapter.get(getBucketKey(id));
   if (!existingData) return null;
 
   const existing = JSON.parse(existingData) as TestBucket;
-  const updated: TestBucket = {
+  // Store the parsed result, not the raw merge: parsing strips unknown keys and fills defaults.
+  const updated = TestBucketSchema.parse({
     ...existing,
     ...updates,
     id, // protect id
     createdAt: existing.createdAt, // protect createdAt
     updatedAt: new Date().toISOString(),
-  };
-
-  // Validate
-  TestBucketSchema.parse(updated);
+  });
 
   await adapter.set(getBucketKey(id), JSON.stringify(updated));
   return updated;
@@ -102,4 +109,3 @@ export async function saveBucket(bucket: TestBucket): Promise<void> {
   await adapter.set(getBucketKey(bucket.id), JSON.stringify(bucket));
   await adapter.sadd(INDEX_KEY, bucket.id);
 }
-

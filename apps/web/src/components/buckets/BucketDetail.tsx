@@ -10,11 +10,16 @@ import {
   XIcon,
   SaveIcon,
   ClipboardIcon,
+  EyeIcon,
+  EyeOffIcon,
+  LockIcon,
+  LockOpenIcon,
 } from '@/components/common/Icons';
-import { ConfirmDialog } from '@/components/common/ConfirmDialog';
-import { ActionGroupDialog } from '@/components/common/ActionGroupDialog';
+import { AuthFields } from '@/components/common/AuthFields';
+import { ActionGroupDialogs, type GroupDialogState } from '@/components/common/ActionGroupDialogs';
 import { PasteVariablesDialog } from '@/components/common/PasteVariablesDialog';
-import type { BucketVariable, AuthConfig } from '@fortest/types';
+import type { BucketVariable, AuthConfig, Environment } from '@fortest/types';
+import { PromptDialog } from '@/components/common/PromptDialog';
 import { useToastStore } from '@/stores/toastStore';
 
 export function BucketDetail() {
@@ -23,62 +28,67 @@ export function BucketDetail() {
     activeBucketId,
     updateBucket,
     setActiveGroup,
-    addActionGroup,
-    updateActionGroup,
-    deleteActionGroup,
   } = useBucketStore();
   const { addToast } = useToastStore();
 
   const bucket = buckets.find((b) => b.id === activeBucketId);
 
   // Local state for form fields to allow editing before saving
-  const [name, setName] = useState('');
   const [baseUrl, setBaseUrl] = useState('');
   const [auth, setAuth] = useState<AuthConfig>({ type: 'none' });
   const [variables, setVariables] = useState<BucketVariable[]>([]);
+  const [environments, setEnvironments] = useState<Environment[]>([]);
+  const [revealed, setRevealed] = useState<Set<string>>(new Set()); // secret variables shown in clear
+  // Which variable list is being edited: 'shared' (the bucket's own) or an environment id.
+  const [scope, setScope] = useState('shared');
   const [isConfigExpanded, setIsConfigExpanded] = useState(true);
 
-  // Sync state with active bucket
+  // Sync state with active bucket. Keyed on the config fields only: other store updates
+  // (e.g. adding an action group) must not wipe unsaved edits to the form.
+  const configKey = bucket && JSON.stringify([bucket.id, bucket.name, bucket.baseUrl, bucket.auth, bucket.variables, bucket.environments]);
   useEffect(() => {
     if (bucket) {
-      setName(bucket.name);
       setBaseUrl(bucket.baseUrl || '');
       setAuth(bucket.auth || { type: 'none' });
       setVariables(bucket.variables || []);
+      setEnvironments(bucket.environments || []);
     }
-  }, [bucket, activeBucketId]);
+  }, [configKey]);
 
-  // Dialog states for action group management
-  const [dialogState, setDialogState] = useState<{
-    type: 'createGroup' | 'renameGroup' | 'deleteGroup' | 'pasteVariables' | null;
-    groupId?: string;
-    initialValue?: string;
-    initialDescription?: string;
-  }>({ type: null });
-
-  useEffect(() => {
-    if (dialogState.type !== null) {
-      document.body.style.overflow = 'hidden';
-    } else {
-      document.body.style.overflow = '';
-    }
-    return () => {
-      document.body.style.overflow = '';
-    };
-  }, [dialogState.type]);
+  const [dialogState, setDialogState] = useState<
+    { type: GroupDialogState['type'] | 'pasteVariables' | 'newEnvironment' } & Omit<GroupDialogState, 'type'>
+  >({ type: null });
 
   if (!bucket) return null;
+
+  // The variable list currently shown: the bucket's shared one or the selected environment's.
+  const scopedEnv = environments.find((e) => e.id === scope);
+  const scopedVariables = scopedEnv ? scopedEnv.variables : variables;
+  const setScopedVariables = (next: BucketVariable[]) =>
+    scopedEnv
+      ? setEnvironments(environments.map((e) => (e.id === scopedEnv.id ? { ...e, variables: next } : e)))
+      : setVariables(next);
+  const updateScopedEnv = (patch: Partial<Environment>) =>
+    setEnvironments(environments.map((e) => (e.id === scope ? { ...e, ...patch } : e)));
+  const hasKey = (v: BucketVariable) => v.key.trim() !== '';
+  const isSelectedTab = (id: string) => (scopedEnv ? id === scopedEnv.id : id === 'shared');
 
   const handleSaveConfig = async (e: React.FormEvent) => {
     e.preventDefault();
     // Validate variables (filter out empty keys)
-    const validVariables = variables.filter((v) => v.key.trim() !== '');
+    const names = environments.map((e) => e.name.trim().toLowerCase());
+    if (names.some((n) => !n) || new Set(names).size !== names.length) {
+      addToast('Environment names must be filled in and unique.', 'error');
+      return;
+    }
     try {
       await updateBucket(bucket.id, {
-        name,
         baseUrl,
         auth,
-        variables: validVariables,
+        variables: variables.filter(hasKey),
+        environments: environments.map((e) => ({ ...e, name: e.name.trim(), variables: e.variables.filter(hasKey) })),
+        // A deleted environment can't stay selected.
+        activeEnvironmentId: environments.some((e) => e.id === bucket.activeEnvironmentId) ? bucket.activeEnvironmentId : null,
       });
       addToast('Global configuration saved successfully', 'success');
     } catch (err: any) {
@@ -93,12 +103,12 @@ export function BucketDetail() {
       value: '',
       enabled: true,
     };
-    setVariables([...variables, newVar]);
+    setScopedVariables([...scopedVariables, newVar]);
   };
 
   const handleVariableChange = (id: string, field: keyof BucketVariable, val: any) => {
-    setVariables(
-      variables.map((v) => {
+    setScopedVariables(
+      scopedVariables.map((v) => {
         if (v.id === id) {
           return { ...v, [field]: val };
         }
@@ -108,7 +118,7 @@ export function BucketDetail() {
   };
 
   const handleRemoveVariable = (id: string) => {
-    setVariables(variables.filter((v) => v.id !== id));
+    setScopedVariables(scopedVariables.filter((v) => v.id !== id));
   };
 
   const handleBulkAddVariables = (parsedVars: { key: string; value: string; enabled: boolean }[]) => {
@@ -118,54 +128,9 @@ export function BucketDetail() {
       value: v.value,
       enabled: v.enabled,
     }));
-    setVariables([...variables, ...newVars]);
+    setScopedVariables([...scopedVariables, ...newVars]);
     addToast(`Successfully added ${newVars.length} variables. Click "Save Configuration" to persist them.`, 'success');
     setDialogState({ type: null });
-  };
-
-  const handleCreateGroupConfirm = async (groupName: string, description: string) => {
-    try {
-      await addActionGroup(bucket.id, groupName, description);
-      addToast(`Action group "${groupName}" created successfully`, 'success');
-    } catch (err: any) {
-      addToast(err.message || 'Failed to create action group', 'error');
-    }
-    setDialogState({ type: null });
-  };
-
-  const handleRenameGroupConfirm = async (groupName: string, description: string) => {
-    if (dialogState.groupId) {
-      try {
-        await updateActionGroup(bucket.id, dialogState.groupId, { name: groupName, description });
-        addToast(`Action group updated successfully`, 'success');
-      } catch (err: any) {
-        addToast(err.message || 'Failed to update action group', 'error');
-      }
-    }
-    setDialogState({ type: null });
-  };
-
-  const handleDeleteGroupConfirm = async () => {
-    if (dialogState.groupId) {
-      try {
-        await deleteActionGroup(bucket.id, dialogState.groupId);
-        addToast('Action group deleted successfully', 'success');
-      } catch (err: any) {
-        addToast(err.message || 'Failed to delete action group', 'error');
-      }
-    }
-    setDialogState({ type: null });
-  };
-
-  const handleExport = (format: 'json' | 'yaml') => {
-    const url = `/api/buckets/${bucket.id}/export?format=${format}`;
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = '';
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    addToast(`Exporting "${bucket.name}" as ${format.toUpperCase()}...`, 'info');
   };
 
   return (
@@ -182,22 +147,24 @@ export function BucketDetail() {
           </p>
         </div>
         <div style={{ display: 'flex', gap: '8px' }}>
-          <button
-            type="button"
+          <a
             className="btn btn--secondary"
-            onClick={() => handleExport('yaml')}
+            href={`/api/buckets/${bucket.id}/export?format=yaml`}
+            download
+            onClick={() => addToast(`Exporting "${bucket.name}" as YAML...`, 'info')}
             style={{ padding: '6px 12px', fontSize: '12.5px', display: 'flex', alignItems: 'center', gap: '6px' }}
           >
             <SaveIcon size={14} /> Export YAML
-          </button>
-          <button
-            type="button"
+          </a>
+          <a
             className="btn btn--secondary"
-            onClick={() => handleExport('json')}
+            href={`/api/buckets/${bucket.id}/export?format=json`}
+            download
+            onClick={() => addToast(`Exporting "${bucket.name}" as JSON...`, 'info')}
             style={{ padding: '6px 12px', fontSize: '12.5px', display: 'flex', alignItems: 'center', gap: '6px' }}
           >
             <SaveIcon size={14} /> Export JSON
-          </button>
+          </a>
         </div>
       </div>
 
@@ -234,125 +201,13 @@ export function BucketDetail() {
             <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
               <label style={{ fontWeight: 500, fontSize: '12px', color: 'var(--text-secondary)' }}>Global Authentication</label>
               
-              <div style={{ width: '200px' }}>
-                <select
-                  className="input"
-                  value={auth.type}
-                  onChange={(e) => setAuth({ ...auth, type: e.target.value as any })}
-                >
-                  <option value="none">No Auth</option>
-                  <option value="bearer">Bearer Token</option>
-                  <option value="basic">Basic Auth</option>
-                  <option value="api-key">API Key</option>
-                </select>
-              </div>
-
-              {auth.type === 'bearer' && (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', paddingLeft: '16px', borderLeft: '2px solid var(--border-primary)' }}>
-                  <label style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>Token</label>
-                  <input
-                    type="text"
-                    className="input"
-                    placeholder="Token value (or {{variable}})"
-                    value={auth.bearer?.token || ''}
-                    onChange={(e) => setAuth({ ...auth, bearer: { token: e.target.value } })}
-                  />
-                </div>
-              )}
-
-              {auth.type === 'basic' && (
-                <div style={{ display: 'flex', gap: '12px', paddingLeft: '16px', borderLeft: '2px solid var(--border-primary)' }}>
-                  <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                    <label style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>Username</label>
-                    <input
-                      type="text"
-                      className="input"
-                      placeholder="Username"
-                      value={auth.basic?.username || ''}
-                      onChange={(e) => setAuth({
-                        ...auth,
-                        basic: { username: e.target.value, password: auth.basic?.password || '' }
-                      })}
-                    />
-                  </div>
-                  <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                    <label style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>Password</label>
-                    <input
-                      type="password"
-                      className="input"
-                      placeholder="Password"
-                      value={auth.basic?.password || ''}
-                      onChange={(e) => setAuth({
-                        ...auth,
-                        basic: { username: auth.basic?.username || '', password: e.target.value }
-                      })}
-                    />
-                  </div>
-                </div>
-              )}
-
-              {auth.type === 'api-key' && (
-                <div style={{ display: 'flex', gap: '12px', paddingLeft: '16px', borderLeft: '2px solid var(--border-primary)' }}>
-                  <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                    <label style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>Key</label>
-                    <input
-                      type="text"
-                      className="input"
-                      placeholder="X-API-Key"
-                      value={auth.apiKey?.key || ''}
-                      onChange={(e) => setAuth({
-                        ...auth,
-                        apiKey: {
-                          key: e.target.value,
-                          value: auth.apiKey?.value || '',
-                          addTo: auth.apiKey?.addTo || 'header'
-                        }
-                      })}
-                    />
-                  </div>
-                  <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                    <label style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>Value</label>
-                    <input
-                      type="text"
-                      className="input"
-                      placeholder="Value"
-                      value={auth.apiKey?.value || ''}
-                      onChange={(e) => setAuth({
-                        ...auth,
-                        apiKey: {
-                          key: auth.apiKey?.key || '',
-                          value: e.target.value,
-                          addTo: auth.apiKey?.addTo || 'header'
-                        }
-                      })}
-                    />
-                  </div>
-                  <div style={{ width: '120px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                    <label style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>Add To</label>
-                    <select
-                      className="input"
-                      value={auth.apiKey?.addTo || 'header'}
-                      onChange={(e) => setAuth({
-                        ...auth,
-                        apiKey: {
-                          key: auth.apiKey?.key || '',
-                          value: auth.apiKey?.value || '',
-                          addTo: e.target.value as any
-                        }
-                      })}
-                    >
-                      <option value="header">Headers</option>
-                      <option value="query">Query Params</option>
-                    </select>
-                  </div>
-                </div>
-              )}
+              <AuthFields auth={auth} noneLabel="No Auth" tokenPlaceholder="Token value (or {{variable}})" onChange={setAuth} />
             </div>
 
             {/* Global Variables */}
             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                <label style={{ fontWeight: 500, fontSize: '12px', color: 'var(--text-secondary)' }}>Bucket Variables</label>
+                <label style={{ fontWeight: 500, fontSize: '12px', color: 'var(--text-secondary)' }}>Variables</label>
                 <div style={{ display: 'flex', gap: '8px' }}>
                   <button
                     type="button"
@@ -373,13 +228,76 @@ export function BucketDetail() {
                 </div>
               </div>
 
-              {variables.length === 0 ? (
+              {/* Shared variables + one tab per environment */}
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', alignItems: 'center' }}>
+                {[{ id: 'shared', name: 'Shared' }, ...environments].map((tab) => (
+                  <button
+                    key={tab.id}
+                    type="button"
+                    className={`btn ${isSelectedTab(tab.id) ? 'btn--secondary' : 'btn--ghost'}`}
+                    aria-pressed={isSelectedTab(tab.id)}
+                    style={{
+                      fontSize: '12px',
+                      padding: '4px 10px',
+                      boxShadow: isSelectedTab(tab.id) ? 'inset 0 -2px 0 var(--accent-primary)' : undefined,
+                    }}
+                    onClick={() => setScope(tab.id)}
+                    title={tab.id === bucket.activeEnvironmentId ? 'Selected environment' : undefined}
+                  >
+                    {tab.name || 'Unnamed'}
+                    {tab.id === bucket.activeEnvironmentId && <span style={{ color: 'var(--status-2xx)' }}> ●</span>}
+                  </button>
+                ))}
+                <button
+                  type="button"
+                  className="btn btn--ghost"
+                  style={{ fontSize: '12px', padding: '4px 10px', display: 'flex', alignItems: 'center', gap: '4px' }}
+                  onClick={() => setDialogState({ type: 'newEnvironment' })}
+                >
+                  <PlusIcon size={12} /> Environment
+                </button>
+              </div>
+
+              {scopedEnv ? (
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <input
+                    type="text"
+                    className="input"
+                    style={{ maxWidth: '220px' }}
+                    aria-label="Environment name"
+                    value={scopedEnv.name}
+                    onChange={(e) => updateScopedEnv({ name: e.target.value })}
+                  />
+                  <span style={{ flex: 1, fontSize: '12px', color: 'var(--text-tertiary)' }}>
+                    Overrides shared variables with the same name when this environment is selected.
+                  </span>
+                  <button
+                    type="button"
+                    className="btn btn--ghost"
+                    style={{ fontSize: '11px', padding: '4px 8px', color: 'var(--method-delete)' }}
+                    onClick={() => {
+                      setEnvironments(environments.filter((e) => e.id !== scopedEnv.id));
+                      setScope('shared');
+                    }}
+                  >
+                    Delete environment
+                  </button>
+                </div>
+              ) : (
+                environments.length > 0 && (
+                  <span style={{ fontSize: '12px', color: 'var(--text-tertiary)' }}>
+                    Shared variables apply in every environment. Pick the environment to run with in the sidebar.
+                  </span>
+                )
+              )}
+
+              {scopedVariables.length === 0 ? (
                 <div style={{ padding: '16px', borderRadius: 'var(--radius-md)', border: '1px dashed var(--border-primary)', textAlign: 'center', color: 'var(--text-tertiary)', fontSize: '12px' }}>
                   No variables defined. Reference values in paths, headers, or bodies using double curly braces (e.g. &#123;&#123;baseUrl&#125;&#125;).
                 </div>
               ) : (
                 <div className="variables-list">
-                  {variables.map((variable) => (
+                  {scopedVariables.map((variable) => (
                     <div key={variable.id} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                       <input
                         type="checkbox"
@@ -395,17 +313,51 @@ export function BucketDetail() {
                         value={variable.key}
                         onChange={(e) => handleVariableChange(variable.id, 'key', e.target.value)}
                       />
-                      <input
-                        type="text"
-                        className="input"
-                        placeholder="Value"
-                        value={variable.value}
-                        onChange={(e) => handleVariableChange(variable.id, 'value', e.target.value)}
-                      />
+                      {/* Sized like the key input (width: 100%) so both columns share the row equally */}
+                      <div style={{ position: 'relative', width: '100%', minWidth: 0, display: 'flex' }}>
+                        <input
+                          type={variable.secret && !revealed.has(variable.id) ? 'password' : 'text'}
+                          className="input"
+                          placeholder={variable.secret ? 'Secret value (or pass with --var in CI)' : 'Value'}
+                          autoComplete="off"
+                          style={{ width: '100%', ...(variable.secret ? { paddingRight: '32px' } : {}) }}
+                          value={variable.value}
+                          onChange={(e) => handleVariableChange(variable.id, 'value', e.target.value)}
+                        />
+                        {variable.secret && (
+                          <button
+                            type="button"
+                            className="btn btn--icon"
+                            style={{ position: 'absolute', right: '2px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-tertiary)' }}
+                            title={revealed.has(variable.id) ? 'Hide value' : 'Show value'}
+                            onClick={() => {
+                              const next = new Set(revealed);
+                              if (!next.delete(variable.id)) next.add(variable.id);
+                              setRevealed(next);
+                            }}
+                          >
+                            {revealed.has(variable.id) ? <EyeOffIcon size={14} /> : <EyeIcon size={14} />}
+                          </button>
+                        )}
+                      </div>
                       <button
                         type="button"
                         className="btn btn--icon"
-                        style={{ color: 'var(--text-tertiary)' }}
+                        style={{ color: variable.secret ? 'var(--accent-primary)' : 'var(--text-tertiary)', flexShrink: 0 }}
+                        aria-pressed={!!variable.secret}
+                        title={
+                          variable.secret
+                            ? 'Secret: masked, left out of exports, redacted from run results. Click to make it a normal variable.'
+                            : 'Mark as secret (masked, left out of exports, redacted from run results)'
+                        }
+                        onClick={() => handleVariableChange(variable.id, 'secret', !variable.secret)}
+                      >
+                        {variable.secret ? <LockIcon size={14} /> : <LockOpenIcon size={14} />}
+                      </button>
+                      <button
+                        type="button"
+                        className="btn btn--icon"
+                        style={{ color: 'var(--text-tertiary)', flexShrink: 0 }}
                         onClick={() => handleRemoveVariable(variable.id)}
                       >
                         <XIcon size={14} />
@@ -447,7 +399,7 @@ export function BucketDetail() {
           </div>
         ) : (
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '16px' }}>
-            {bucket.actionGroups
+            {[...bucket.actionGroups]
               .sort((a, b) => a.order - b.order)
               .map((group) => (
                 <div
@@ -511,46 +463,32 @@ export function BucketDetail() {
         )}
       </div>
 
-      {/* Dialogs */}
-      {dialogState.type === 'createGroup' && (
-        <ActionGroupDialog
-          isOpen={true}
-          title="Create Action Group"
-          submitText="Create"
-          onConfirm={handleCreateGroupConfirm}
+      {dialogState.type === 'pasteVariables' ? (
+        <PasteVariablesDialog onConfirm={handleBulkAddVariables} onCancel={() => setDialogState({ type: null })} />
+      ) : dialogState.type === 'newEnvironment' ? (
+        <PromptDialog
+          title="New Environment"
+          label="Name"
+          placeholder="e.g. staging"
+          submitText="Add"
+          onConfirm={(name) => {
+            if (environments.some((e) => e.name.toLowerCase() === name.toLowerCase())) {
+              addToast(`An environment named "${name}" already exists.`, 'error');
+              return;
+            }
+            const env: Environment = { id: crypto.randomUUID(), name, variables: [] };
+            setEnvironments([...environments, env]);
+            setScope(env.id);
+            setDialogState({ type: null });
+            addToast(`Environment "${name}" added. Click "Save Configuration" to persist it.`, 'info');
+          }}
           onCancel={() => setDialogState({ type: null })}
         />
-      )}
-
-      {dialogState.type === 'renameGroup' && (
-        <ActionGroupDialog
-          isOpen={true}
-          title="Edit Action Group"
-          submitText="Save"
-          initialName={dialogState.initialValue}
-          initialDescription={dialogState.initialDescription}
-          onConfirm={handleRenameGroupConfirm}
-          onCancel={() => setDialogState({ type: null })}
-        />
-      )}
-
-      {dialogState.type === 'deleteGroup' && (
-        <ConfirmDialog
-          isOpen={true}
-          title="Delete Action Group"
-          message="Are you sure you want to delete this action group? This will permanently delete all steps in this group."
-          confirmText="Delete"
-          isDanger={true}
-          onConfirm={handleDeleteGroupConfirm}
-          onCancel={() => setDialogState({ type: null })}
-        />
-      )}
-
-      {dialogState.type === 'pasteVariables' && (
-        <PasteVariablesDialog
-          isOpen={true}
-          onConfirm={handleBulkAddVariables}
-          onCancel={() => setDialogState({ type: null })}
+      ) : (
+        <ActionGroupDialogs
+          bucketId={bucket.id}
+          state={{ ...dialogState, type: dialogState.type }}
+          onClose={() => setDialogState({ type: null })}
         />
       )}
 

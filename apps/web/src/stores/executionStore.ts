@@ -1,13 +1,15 @@
 import { create } from 'zustand';
-import type { ExecutionRun, StepResult, ExecutionConfig } from '@fortest/types';
+import type { ExecutionRun, ExecutionConfig, RunEvent, RunSummary } from '@fortest/types';
+import { applyRunEvent } from '@fortest/utils';
 import { useToastStore } from './toastStore';
+import { regressionLabel } from '@/utils/results';
 
 export interface BackgroundJob {
   runId: string;
   bucketId: string;
   actionGroupId: string;
   actionGroupName: string;
-  status: 'running' | 'completed' | 'failed';
+  status: 'running' | 'completed' | 'failed' | 'cancelled';
   progress: number;
   totalSteps: number;
   completedSteps: number;
@@ -20,14 +22,19 @@ interface ExecutionState {
   error: string | null;
   selectedStepId: string | null; // For displaying detail cards in the UI
   selectedIteration: number | null; // For mapping details to correct iteration
-  pastRuns: ExecutionRun[];
+  pastRuns: RunSummary[];
   pastRunsLoading: boolean;
   backgroundJobs: BackgroundJob[];
 
   // Actions
   initializeGlobalSocket: () => void;
-  startRun: (bucketId: string, groupId: string, config?: ExecutionConfig, actionGroupName?: string) => Promise<string>;
-  stopRun: () => void;
+  startRun: (
+    bucketId: string,
+    groupId: string,
+    config?: ExecutionConfig,
+    actionGroupName?: string,
+  ) => Promise<string>;
+  cancelRun: (runId: string) => Promise<void>;
   selectStep: (stepId: string | null, iteration?: number | null) => void;
   clearRun: () => void;
   loadRuns: (groupId: string) => Promise<void>;
@@ -37,18 +44,25 @@ interface ExecutionState {
 
 const getWsUrl = (): string => {
   const loc = window.location;
-  // If in dev (Vite runs on 5173, backend on 3001)
-  if (loc.port === '5173') {
-    return 'ws://localhost:3001/ws';
-  }
   const protocol = loc.protocol === 'https:' ? 'wss:' : 'ws:';
   return `${protocol}//${loc.host}/ws`;
 };
 
 let wsInstance: WebSocket | null = null;
 
+/** Live updates for a run; the server answers with a snapshot, then streams events. */
+function subscribe(runId: string) {
+  if (wsInstance?.readyState === WebSocket.OPEN) {
+    wsInstance.send(JSON.stringify({ type: 'subscribe', runId }));
+  }
+}
+
 function showNativeNotification(title: string, body: string) {
-  if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted') {
+  if (
+    typeof window !== 'undefined' &&
+    'Notification' in window &&
+    Notification.permission === 'granted'
+  ) {
     try {
       new Notification(title, {
         body,
@@ -57,6 +71,71 @@ function showNativeNotification(title: string, body: string) {
     } catch (err) {
       console.error('Failed to display native push notification:', err);
     }
+  }
+}
+
+/** Toast + OS notification when a background run ends. */
+function notifyFinished(job: BackgroundJob, run: RunSummary) {
+  const failed = run.metrics?.failed ?? 0;
+  const [title, message, type] =
+    run.status === 'cancelled'
+      ? [
+          'Execution Cancelled',
+          `Action Group "${job.actionGroupName}" was cancelled.`,
+          'info' as const,
+        ]
+      : run.status === 'failed'
+        ? [
+            'Execution Failed',
+            `Action Group "${job.actionGroupName}" failed: ${run.error || 'Unknown error'}`,
+            'error' as const,
+          ]
+        : failed > 0
+          ? [
+              'Execution Failed',
+              `Action Group "${job.actionGroupName}" completed with ${failed} failure(s).`,
+              'error' as const,
+            ]
+          : [
+              'Execution Completed',
+              `Action Group "${job.actionGroupName}" completed successfully.`,
+              'success' as const,
+            ];
+  showNativeNotification(title, message);
+  useToastStore.getState().addToast(message, type);
+  if (run.regression) {
+    useToastStore
+      .getState()
+      .addToast(`"${job.actionGroupName}" was slower than usual: ${regressionLabel(run.regression)}`, 'warning');
+  }
+}
+
+/** A background job's progress after an event. */
+function updateJob(job: BackgroundJob, event: RunEvent): BackgroundJob {
+  switch (event.type) {
+    case 'run:snapshot':
+      return { ...job, completedSteps: Math.max(job.completedSteps, event.run.results.length) };
+    case 'run:started':
+      return { ...job, totalSteps: event.totalSteps * event.totalIterations };
+    case 'step:finished': {
+      const completedSteps = job.completedSteps + 1;
+      return {
+        ...job,
+        completedSteps,
+        progress: Math.min(Math.round((completedSteps / (job.totalSteps || 1)) * 100), 99),
+      };
+    }
+    case 'run:finished': {
+      notifyFinished(job, event.run);
+      const failed = event.run.status === 'completed' && (event.run.metrics?.failed ?? 0) > 0;
+      return {
+        ...job,
+        status: failed ? 'failed' : (event.run.status as BackgroundJob['status']),
+        progress: 100,
+      };
+    }
+    default:
+      return job;
   }
 }
 
@@ -70,7 +149,8 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
   pastRunsLoading: false,
   backgroundJobs: [],
 
-  selectStep: (stepId, iteration = 1) => set({ selectedStepId: stepId, selectedIteration: iteration }),
+  selectStep: (stepId, iteration = 1) =>
+    set({ selectedStepId: stepId, selectedIteration: iteration }),
 
   removeBackgroundJob: (runId) => {
     set((state) => ({
@@ -79,7 +159,13 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
   },
 
   clearRun: () => {
-    set({ activeRun: null, isRunning: false, error: null, selectedStepId: null, selectedIteration: null });
+    set({
+      activeRun: null,
+      isRunning: false,
+      error: null,
+      selectedStepId: null,
+      selectedIteration: null,
+    });
   },
 
   loadRuns: async (groupId) => {
@@ -100,8 +186,9 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
     try {
       const res = await fetch(`/api/runs/${runId}`);
       if (!res.ok) throw new Error('Failed to load historical run details');
-      const run = await res.json();
-      set({ activeRun: run });
+      const run: ExecutionRun = await res.json();
+      set({ activeRun: run, isRunning: run.status === 'running' });
+      if (run.status === 'running') subscribe(runId); // keep it live
     } catch (err: any) {
       console.error(err);
       set({ error: err.message || 'Failed to inspect run' });
@@ -109,7 +196,10 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
   },
 
   initializeGlobalSocket: () => {
-    if (wsInstance && (wsInstance.readyState === WebSocket.CONNECTING || wsInstance.readyState === WebSocket.OPEN)) {
+    if (
+      wsInstance &&
+      (wsInstance.readyState === WebSocket.CONNECTING || wsInstance.readyState === WebSocket.OPEN)
+    ) {
       return;
     }
 
@@ -118,227 +208,42 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
       wsInstance = ws;
 
       ws.onopen = () => {
-        console.log('[WS] Global socket connected');
-        // Resubscribe to any active running background jobs
-        const runningJobs = get().backgroundJobs.filter((j) => j.status === 'running');
-        for (const job of runningJobs) {
-          ws.send(JSON.stringify({ type: 'subscribe', runId: job.runId }));
-        }
+        // (Re)subscribe to runs still in progress; each answers with a fresh snapshot.
+        for (const job of get().backgroundJobs) if (job.status === 'running') subscribe(job.runId);
+        const { activeRun } = get();
+        if (activeRun?.status === 'running') subscribe(activeRun.id);
       };
 
-      ws.onmessage = (event) => {
+      ws.onmessage = (message) => {
+        let event: RunEvent;
         try {
-          const message = JSON.parse(event.data);
-          const { runId, type } = message;
-          if (!runId) return;
-
-          // Update pastRuns and activeRun status globally
-          if (type === 'run:started') {
-            set((state) => ({
-              pastRuns: state.pastRuns.map((r) => r.id === runId ? { ...r, status: 'running' as const } : r),
-            }));
-          } else if (type === 'run:completed') {
-            fetch(`/api/runs/${runId}`)
-              .then((res) => res.json())
-              .then((fullRun: ExecutionRun) => {
-                set((state) => {
-                  const isCurrentlyInspecting = state.activeRun?.id === runId;
-                  return {
-                    pastRuns: state.pastRuns.map((r) => r.id === runId ? fullRun : r),
-                    ...(isCurrentlyInspecting ? { activeRun: fullRun, isRunning: false } : {}),
-                  };
-                });
-              })
-              .catch(() => {
-                set((state) => {
-                  const isCurrentlyInspecting = state.activeRun?.id === runId;
-                  return {
-                    pastRuns: state.pastRuns.map((r) => r.id === runId ? { ...r, status: 'completed' as const } : r),
-                    ...(isCurrentlyInspecting ? { activeRun: state.activeRun ? { ...state.activeRun, status: 'completed' } : null, isRunning: false } : {}),
-                  };
-                });
-              });
-          } else if (type === 'run:failed') {
-            set((state) => {
-              const isCurrentlyInspecting = state.activeRun?.id === runId;
-              return {
-                pastRuns: state.pastRuns.map((r) => r.id === runId ? { ...r, status: 'failed' as const } : r),
-                ...(isCurrentlyInspecting ? { activeRun: state.activeRun ? { ...state.activeRun, status: 'failed' } : null, isRunning: false, error: message.error } : {}),
-              };
-            });
-          }
-
-          const isInspecting = get().activeRun?.id === runId;
-
-          // Update background job state
-          set((state) => {
-            const updatedJobs = state.backgroundJobs.map((job) => {
-              if (job.runId !== runId) return job;
-
-              let status = job.status;
-              let completedSteps = job.completedSteps;
-              let progress = job.progress;
-              let totalSteps = job.totalSteps;
-
-              if (type === 'run:started') {
-                const stepsCount = message.totalSteps || 1;
-                const itersCount = message.totalIterations || 1;
-                totalSteps = stepsCount * itersCount;
-              } else if (type === 'step:completed' || type === 'step:failed') {
-                completedSteps = job.completedSteps + 1;
-                const total = totalSteps || 1;
-                progress = Math.min(Math.round((completedSteps / total) * 100), 99);
-              } else if (type === 'run:completed') {
-                const failedCount = message.summary?.failed || 0;
-                status = failedCount > 0 ? 'failed' : 'completed';
-                progress = 100;
-                if (failedCount > 0) {
-                  showNativeNotification(
-                    'Execution Failed',
-                    `Action Group "${job.actionGroupName}" completed with ${failedCount} failure(s).`
-                  );
-                  useToastStore.getState().addToast(
-                    `Action Group "${job.actionGroupName}" completed with ${failedCount} failure(s).`,
-                    'error'
-                  );
-                } else {
-                  showNativeNotification(
-                    'Execution Completed',
-                    `Action Group "${job.actionGroupName}" completed successfully.`
-                  );
-                  useToastStore.getState().addToast(
-                    `Action Group "${job.actionGroupName}" completed successfully.`,
-                    'success'
-                  );
-                }
-              } else if (type === 'run:failed') {
-                status = 'failed';
-                const errMsg = message.error || 'Unknown error';
-                showNativeNotification(
-                  'Execution Failed',
-                  `Action Group "${job.actionGroupName}" failed: ${errMsg}`
-                );
-                useToastStore.getState().addToast(
-                  `Action Group "${job.actionGroupName}" failed: ${errMsg}`,
-                  'error'
-                );
-              }
-
-              return {
-                ...job,
-                status,
-                completedSteps,
-                progress,
-                totalSteps,
-              };
-            });
-
-            return { backgroundJobs: updatedJobs };
-          });
-
-          // Update currently viewed activeRun
-          if (isInspecting) {
-            const currentRun = get().activeRun;
-            if (!currentRun) return;
-
-            switch (type) {
-              case 'run:started':
-                break;
-
-              case 'step:started': {
-                const stepIteration = message.iteration || 1;
-                const tempResult: StepResult = {
-                  stepId: message.stepId,
-                  stepName: message.stepName,
-                  iteration: stepIteration,
-                  status: 0,
-                  statusText: 'Executing...',
-                  responseTime: 0,
-                  responseSize: 0,
-                  responseHeaders: {},
-                  responseBody: '',
-                  contentType: 'text/plain',
-                  extractedData: {},
-                  assertions: [],
-                  timestamp: new Date().toISOString(),
-                  url: '',
-                  method: 'GET',
-                };
-
-                set({
-                  activeRun: {
-                    ...currentRun,
-                    results: [
-                      ...currentRun.results.filter((r) => !(r.stepId === message.stepId && r.iteration === stepIteration)),
-                      tempResult,
-                    ],
-                  },
-                });
-
-                if (!get().selectedStepId) {
-                  set({ selectedStepId: message.stepId, selectedIteration: stepIteration });
-                }
-                break;
-              }
-
-              case 'step:completed': {
-                const stepIteration = message.iteration || 1;
-                const updatedResult: StepResult = {
-                  stepId: message.stepId,
-                  stepName: message.stepName,
-                  iteration: stepIteration,
-                  status: message.statusCode,
-                  statusText: String(message.statusCode),
-                  responseTime: message.responseTime,
-                  responseSize: 0,
-                  responseHeaders: {},
-                  responseBody: '',
-                  contentType: 'application/json',
-                  extractedData: message.extractedData,
-                  assertions: message.assertions,
-                  timestamp: new Date().toISOString(),
-                  url: message.url || '',
-                  method: message.method || 'GET',
-                };
-
-                set({
-                  activeRun: {
-                    ...currentRun,
-                    results: currentRun.results.map((r) =>
-                      r.stepId === message.stepId && r.iteration === stepIteration ? { ...r, ...updatedResult } : r
-                    ),
-                  },
-                });
-                break;
-              }
-
-              case 'step:failed': {
-                const stepIteration = message.iteration || 1;
-                const updatedResult: Partial<StepResult> = {
-                  status: 0,
-                  statusText: 'Failed',
-                  error: message.error,
-                  responseTime: message.responseTime || 0,
-                  timestamp: new Date().toISOString(),
-                  url: message.url || '',
-                  method: message.method || 'GET',
-                };
-
-                set({
-                  activeRun: {
-                    ...currentRun,
-                    results: currentRun.results.map((r) =>
-                      r.stepId === message.stepId && r.iteration === stepIteration ? { ...r, ...updatedResult } : r
-                    ),
-                  },
-                });
-                break;
-              }
-            }
-          }
+          event = JSON.parse(message.data);
         } catch (err) {
           console.error('Failed to parse WebSocket execution event', err);
+          return;
         }
+
+        set((state) => {
+          const isActive = state.activeRun?.id === event.runId;
+          const activeRun = isActive ? applyRunEvent(state.activeRun, event) : state.activeRun;
+          const finished = event.type === 'run:finished' ? event.run : null;
+          return {
+            activeRun,
+            ...(isActive && finished ? { isRunning: false } : {}),
+            ...(isActive && !state.selectedStepId && event.type === 'step:started'
+              ? { selectedStepId: event.stepId, selectedIteration: event.iteration }
+              : {}),
+            pastRuns: state.pastRuns.map((r) =>
+              r.id !== event.runId
+                ? r
+                : (finished ??
+                  (event.type === 'run:started' ? { ...r, status: 'running' as const } : r)),
+            ),
+            backgroundJobs: state.backgroundJobs.map((job) =>
+              job.runId === event.runId && job.status === 'running' ? updateJob(job, event) : job,
+            ),
+          };
+        });
       };
 
       ws.onclose = () => {
@@ -365,43 +270,21 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
       });
 
       if (!res.ok) {
-        throw new Error('Failed to initiate execution run');
+        throw new Error(
+          (await res.json().catch(() => null))?.message || 'Failed to initiate execution run',
+        );
       }
 
       const { runId } = await res.json();
+      const name = actionGroupName || 'API Flow';
+      const now = new Date().toISOString();
 
-      // Add to background jobs list
-      const iters = config?.iterations || 1;
-      const newJob: BackgroundJob = {
-        runId,
-        bucketId,
-        actionGroupId: groupId,
-        actionGroupName: actionGroupName || 'API Flow',
-        status: 'running',
-        progress: 0,
-        totalSteps: iters, // Will be updated correctly on run:started event
-        completedSteps: 0,
-        createdAt: new Date().toISOString(),
-      };
-
-      set((state) => ({
-        backgroundJobs: [newJob, ...state.backgroundJobs].slice(0, 20),
-      }));
-
-      // Initialize/verify global WebSocket connection
-      get().initializeGlobalSocket();
-
-      // Subscribe to updates for this runId
-      if (wsInstance && wsInstance.readyState === WebSocket.OPEN) {
-        wsInstance.send(JSON.stringify({ type: 'subscribe', runId }));
-      }
-
-      // Initialize activeRun local representation
+      // Local copy until the snapshot and events arrive.
       const initialRun: ExecutionRun = {
         id: runId,
         bucketId,
         actionGroupId: groupId,
-        actionGroupName: actionGroupName || 'API Flow',
+        actionGroupName: name,
         config: config || {
           mode: 'manual',
           iterations: 1,
@@ -411,14 +294,28 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
         },
         status: 'running',
         results: [],
-        createdAt: new Date().toISOString(),
+        createdAt: now,
+      };
+      const job: BackgroundJob = {
+        runId,
+        bucketId,
+        actionGroupId: groupId,
+        actionGroupName: name,
+        status: 'running',
+        progress: 0,
+        totalSteps: config?.iterations || 1, // corrected by run:started
+        completedSteps: 0,
+        createdAt: now,
       };
 
       set((state) => ({
         activeRun: initialRun,
         pastRuns: [initialRun, ...state.pastRuns].slice(0, 50),
+        backgroundJobs: [job, ...state.backgroundJobs].slice(0, 20),
       }));
 
+      get().initializeGlobalSocket();
+      subscribe(runId);
       return runId;
     } catch (err: any) {
       set({ isRunning: false, error: err.message || 'Failed to start run' });
@@ -426,7 +323,11 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
     }
   },
 
-  stopRun: () => {
-    set({ isRunning: false });
+  cancelRun: async (runId) => {
+    const res = await fetch(`/api/runs/${runId}/cancel`, { method: 'POST' });
+    // 404: it finished on its own meanwhile; run:finished will (or did) arrive anyway.
+    if (!res.ok && res.status !== 404) {
+      useToastStore.getState().addToast('Failed to cancel run', 'error');
+    }
   },
 }));

@@ -2,6 +2,13 @@ import { useToastStore } from '@/stores/toastStore';
 import { CheckCircleIcon, AlertCircleIcon, InfoIcon, XIcon } from './Icons';
 import './ToastContainer.css';
 
+const TOAST_STYLE = {
+  success: [CheckCircleIcon, 'var(--status-2xx)'],
+  error: [AlertCircleIcon, 'var(--status-5xx)'],
+  warning: [AlertCircleIcon, 'var(--status-3xx)'],
+  info: [InfoIcon, 'var(--accent-primary)'],
+} as const;
+
 export function ToastContainer() {
   const { toasts, removeToast } = useToastStore();
 
@@ -10,20 +17,7 @@ export function ToastContainer() {
   return (
     <div className="toast-container">
       {toasts.map((toast) => {
-        let IconComponent = InfoIcon;
-        let iconColor = 'var(--accent-primary)';
-
-        if (toast.type === 'success') {
-          IconComponent = CheckCircleIcon;
-          iconColor = 'var(--status-2xx)';
-        } else if (toast.type === 'error') {
-          IconComponent = AlertCircleIcon;
-          iconColor = 'var(--status-5xx)';
-        } else if (toast.type === 'warning') {
-          IconComponent = AlertCircleIcon;
-          iconColor = 'var(--status-3xx)';
-        }
-
+        const [IconComponent, iconColor] = TOAST_STYLE[toast.type];
         return (
           <div key={toast.id} className={`toast toast--${toast.type}`}>
             <span className="toast__icon" style={{ color: iconColor }}>

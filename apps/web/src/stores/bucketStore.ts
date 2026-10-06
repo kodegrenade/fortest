@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import type { TestBucket, ActionGroup, Step } from '@fortest/types';
+import { renameStepReferences } from '@fortest/utils';
 
 export interface ImportResult {
   warnings: string[];
@@ -36,7 +37,8 @@ interface BucketState {
   updateActionGroup: (bucketId: string, groupId: string, data: Partial<ActionGroup>) => Promise<void>;
   deleteActionGroup: (bucketId: string, groupId: string) => Promise<void>;
   addStep: (bucketId: string, groupId: string, name: string) => Promise<void>;
-  updateStep: (bucketId: string, groupId: string, stepId: string, data: Partial<Step>) => Promise<void>;
+  /** Resolves to how many {{steps.<name>.…}} references in other steps a rename updated. */
+  updateStep: (bucketId: string, groupId: string, stepId: string, data: Partial<Step>) => Promise<number>;
   deleteStep: (bucketId: string, groupId: string, stepId: string) => Promise<void>;
   reorderSteps: (bucketId: string, groupId: string, stepIds: string[]) => Promise<void>;
   duplicateStep: (bucketId: string, groupId: string, stepId: string) => Promise<void>;
@@ -87,7 +89,7 @@ export const useBucketStore = create<BucketState>((set, get) => ({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(data),
       });
-      if (!res.ok) throw new Error('Failed to update bucket');
+      if (!res.ok) throw new Error((await res.json().catch(() => null))?.message || 'Failed to update bucket');
       await get().loadBuckets();
     } catch (err: any) {
       const errMsg = err.message || 'Failed to update bucket';
@@ -271,10 +273,15 @@ export const useBucketStore = create<BucketState>((set, get) => ({
 
   updateStep: async (bucketId, groupId, stepId, data) => {
     const bucket = get().buckets.find((b) => b.id === bucketId);
-    if (!bucket) return;
+    if (!bucket) return 0;
 
     const group = bucket.actionGroups.find((g) => g.id === groupId);
-    if (!group) return;
+    if (!group) return 0;
+
+    // A rename carries the other steps' {{steps.<old name>.…}} references along with it.
+    const oldName = group.steps.find((s) => s.id === stepId)?.name;
+    const renamed = data.name !== undefined && oldName !== undefined && data.name !== oldName;
+    let referencesUpdated = 0;
 
     if (data.name) {
       const targetName = data.name.trim().toLowerCase();
@@ -298,7 +305,10 @@ export const useBucketStore = create<BucketState>((set, get) => ({
                 updatedAt: new Date().toISOString(),
               };
             }
-            return s;
+            if (!renamed) return s;
+            const { step, count } = renameStepReferences(s, oldName, data.name!);
+            referencesUpdated += count;
+            return step;
           }),
           updatedAt: new Date().toISOString(),
         };
@@ -307,6 +317,7 @@ export const useBucketStore = create<BucketState>((set, get) => ({
     });
 
     await get().updateBucket(bucketId, { actionGroups: updatedGroups });
+    return referencesUpdated;
   },
 
   deleteStep: async (bucketId, groupId, stepId) => {

@@ -3,9 +3,10 @@ import { useExecutionStore } from '@/stores/executionStore';
 import { StepWaterfall } from './StepWaterfall';
 import { StepResultCard } from './StepResultCard';
 import { LayersIcon, XIcon, ClockIcon, CheckCircleIcon } from '@/components/common/Icons';
+import { isExecuting, isFailedResult, regressionBadgeStyle, regressionLabel, runTone, toneBadge } from '@/utils/results';
 
 export function RunDashboard() {
-  const { activeRun, selectedStepId, selectedIteration, isRunning, error, clearRun } = useExecutionStore();
+  const { activeRun, selectedStepId, selectedIteration, isRunning, error, clearRun, cancelRun } = useExecutionStore();
   const [secondsElapsed, setSecondsElapsed] = useState(0);
 
   // Timer for active runs
@@ -41,27 +42,25 @@ export function RunDashboard() {
   }
 
   const results = activeRun.results || [];
-  const totalSteps = results.length;
-  const failedSteps = results.filter((r) => r.status >= 400 || r.error || r.assertions?.some((a) => !a.passed)).length;
-  const completedSteps = results.filter((r) => r.status > 0 && r.status < 400 && !r.error && !r.assertions?.some((a) => !a.passed)).length;
+  const failedSteps = results.filter(isFailedResult).length;
+  const completedSteps = results.filter((r) => !isExecuting(r) && !isFailedResult(r)).length;
   
   const selectedResult = results.find(
     (r) => r.stepId === selectedStepId && (selectedIteration ? r.iteration === selectedIteration : r.iteration === 1)
   );
 
-  const getStatusLabel = () => {
-    if (activeRun.status === 'running') return 'RUNNING';
-    if (activeRun.status === 'completed') return 'COMPLETED';
-    if (activeRun.status === 'failed') return 'FAILED';
-    return activeRun.status.toUpperCase();
-  };
-
-  const formatDuration = () => {
-    if (activeRun.status === 'running') {
-      return `${secondsElapsed}s`;
-    }
-    return `${activeRun.duration || 0} ms`;
-  };
+  const tiles = [
+    { label: 'Total Steps', value: results.length, Icon: LayersIcon, iconColor: 'var(--accent-primary)', color: 'var(--text-primary)' },
+    { label: 'Passed', value: completedSteps, Icon: CheckCircleIcon, iconColor: 'var(--status-2xx)', color: 'var(--status-2xx)' },
+    { label: 'Failed', value: failedSteps, Icon: XIcon, iconColor: 'var(--status-5xx)', color: 'var(--status-5xx)' },
+    {
+      label: 'Execution Time',
+      value: activeRun.status === 'running' ? `${secondsElapsed}s` : `${activeRun.duration || 0} ms`,
+      Icon: ClockIcon,
+      iconColor: 'var(--text-secondary)',
+      color: 'var(--text-primary)',
+    },
+  ];
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '20px', height: '100%', minHeight: 0 }}>
@@ -79,78 +78,61 @@ export function RunDashboard() {
                 style={{
                   fontSize: '10px',
                   padding: '2px 6px',
-                  backgroundColor: activeRun.status === 'completed' 
-                    ? 'hsla(145, 65%, 50%, 0.15)' 
-                    : activeRun.status === 'running'
-                    ? 'var(--accent-subtle)'
-                    : 'hsla(0, 70%, 58%, 0.15)',
-                  color: activeRun.status === 'completed'
-                    ? 'var(--status-2xx)'
-                    : activeRun.status === 'running'
-                    ? 'var(--accent-primary)'
-                    : 'var(--status-5xx)',
+                  ...toneBadge(runTone(activeRun.status), 15),
                   border: 'none',
                 }}
               >
-                {getStatusLabel()}
+                {activeRun.status.toUpperCase()}
               </span>
             </h2>
             <span style={{ fontSize: '11px', color: 'var(--text-tertiary)' }}>
               Run ID: {activeRun.id}
+              {activeRun.environmentName && ` · env: ${activeRun.environmentName}`}
+              {activeRun.error && ` · ${activeRun.error}`}
             </span>
+            {activeRun.regression && (
+              <div style={{ marginTop: '4px' }}>
+                <span style={regressionBadgeStyle} title={`Compared with the median of ${activeRun.regression.comparedRuns} recent runs (same environment and run type)`}>
+                  ⚠ Slower than usual: {regressionLabel(activeRun.regression)}
+                </span>
+              </div>
+            )}
           </div>
         </div>
 
-        <button
-          className="btn btn--ghost"
-          style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px' }}
-          onClick={clearRun}
-        >
-          <XIcon size={14} /> Close Dashboard
-        </button>
+        <div style={{ display: 'flex', gap: '8px' }}>
+          {activeRun.status === 'running' && (
+            <button
+              className="btn btn--ghost"
+              style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', color: 'var(--status-5xx)' }}
+              onClick={() => cancelRun(activeRun.id)}
+            >
+              Stop Run
+            </button>
+          )}
+          <button
+            className="btn btn--ghost"
+            style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px' }}
+            onClick={clearRun}
+          >
+            <XIcon size={14} /> Close Dashboard
+          </button>
+        </div>
       </div>
 
       {/* Metrics Row */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '16px' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '16px', border: '1px solid var(--border-primary)', borderRadius: 'var(--radius-lg)', backgroundColor: 'var(--bg-secondary)' }}>
-          <div style={{ color: 'var(--accent-primary)' }}>
-            <LayersIcon size={24} />
+        {tiles.map(({ label, value, Icon, iconColor, color }) => (
+          <div key={label} style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '16px', border: '1px solid var(--border-primary)', borderRadius: 'var(--radius-lg)', backgroundColor: 'var(--bg-secondary)' }}>
+            <div style={{ color: iconColor }}>
+              <Icon size={24} />
+            </div>
+            <div>
+              <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', fontWeight: 500 }}>{label}</div>
+              <div style={{ fontSize: '20px', fontWeight: 700, color }}>{value}</div>
+            </div>
           </div>
-          <div>
-            <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', fontWeight: 500 }}>Total Steps</div>
-            <div style={{ fontSize: '20px', fontWeight: 700, color: 'var(--text-primary)' }}>{totalSteps}</div>
-          </div>
-        </div>
-
-        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '16px', border: '1px solid var(--border-primary)', borderRadius: 'var(--radius-lg)', backgroundColor: 'var(--bg-secondary)' }}>
-          <div style={{ color: 'var(--status-2xx)' }}>
-            <CheckCircleIcon size={24} />
-          </div>
-          <div>
-            <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', fontWeight: 500 }}>Passed</div>
-            <div style={{ fontSize: '20px', fontWeight: 700, color: 'var(--status-2xx)' }}>{completedSteps}</div>
-          </div>
-        </div>
-
-        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '16px', border: '1px solid var(--border-primary)', borderRadius: 'var(--radius-lg)', backgroundColor: 'var(--bg-secondary)' }}>
-          <div style={{ color: 'var(--status-5xx)' }}>
-            <XIcon size={24} />
-          </div>
-          <div>
-            <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', fontWeight: 500 }}>Failed</div>
-            <div style={{ fontSize: '20px', fontWeight: 700, color: 'var(--status-5xx)' }}>{failedSteps}</div>
-          </div>
-        </div>
-
-        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '16px', border: '1px solid var(--border-primary)', borderRadius: 'var(--radius-lg)', backgroundColor: 'var(--bg-secondary)' }}>
-          <div style={{ color: 'var(--text-secondary)' }}>
-            <ClockIcon size={24} />
-          </div>
-          <div>
-            <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', fontWeight: 500 }}>Execution Time</div>
-            <div style={{ fontSize: '20px', fontWeight: 700, color: 'var(--text-primary)' }}>{formatDuration()}</div>
-          </div>
-        </div>
+        ))}
       </div>
 
       {/* Main Execution Split View */}

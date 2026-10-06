@@ -9,7 +9,6 @@ interface AnalyticsChartsProps {
 export function AnalyticsCharts({ groupId }: AnalyticsChartsProps) {
   const { pastRuns, pastRunsLoading, loadRuns } = useExecutionStore();
   const [hoveredRunIndex, setHoveredRunIndex] = useState<number | null>(null);
-  const [tooltipPos, setTooltipPos] = useState<{ x: number; y: number } | null>(null);
 
   useEffect(() => {
     loadRuns(groupId);
@@ -53,38 +52,28 @@ export function AnalyticsCharts({ groupId }: AnalyticsChartsProps) {
   const chartRuns = [...completedRuns].reverse().slice(-12);
   const numPoints = chartRuns.length;
 
-  // Max values for scaling
-  const maxAvgLatency = Math.max(...chartRuns.map((r) => r.metrics?.avgLatency || 0), 50);
-  const maxP95Latency = Math.max(...chartRuns.map((r) => r.metrics?.p95 || 0), 50);
-  const maxScale = Math.max(maxAvgLatency, maxP95Latency) * 1.1; // Add 10% headroom
+  // Chart geometry: x spans 50..550, y maps 0..maxScale onto 160..40 (10% headroom).
+  const maxScale = Math.max(...chartRuns.flatMap((r) => [r.metrics?.avgLatency || 0, r.metrics?.p95 || 0]), 50) * 1.1;
+  const X = (index: number) => 50 + index * (500 / (numPoints - 1 || 1));
+  const Y = (value: number) => 160 - (value / maxScale) * 120;
+  const linePoints = (field: 'avgLatency' | 'p95') =>
+    chartRuns.map((run, index) => `${X(index)},${Y(run.metrics?.[field] || 0)}`).join(' ');
 
-  // Helper to generate SVG polyline path for latency
-  const getLatencyPath = (field: 'avgLatency' | 'p95') => {
-    if (numPoints < 2) return '';
-    return chartRuns
-      .map((run, index) => {
-        const x = 50 + (index * (500 / (numPoints - 1)));
-        const val = field === 'avgLatency' ? (run.metrics?.avgLatency || 0) : (run.metrics?.p95 || 0);
-        const y = 160 - (val / maxScale) * 120;
-        return `${x},${y}`;
-      })
-      .join(' ');
-  };
+  const tiles = [
+    {
+      label: 'Success Rate',
+      value: `${overallSuccessRate}%`,
+      color: overallSuccessRate === 100 ? 'var(--status-2xx)' : 'var(--status-5xx)',
+      note: `${totalRequests - totalFailed} / ${totalRequests} total requests`,
+    },
+    { label: 'Avg Latency (Historical)', value: `${overallAvgLatency} ms`, color: 'var(--text-primary)', note: `Across ${totalRunsCount} recorded runs` },
+    { label: 'Max Latency Recorded', value: `${maxRecordedLatency} ms`, color: 'var(--text-primary)', note: 'Single request peak duration' },
+    { label: 'Total runs', value: totalRunsCount, color: 'var(--accent-primary)', note: 'Retained runs history size' },
+  ];
 
-  // Helper to get SVG points for gradient fill under the line
-  const getLatencyAreaPoints = () => {
-    if (numPoints < 2) return '';
-    const linePoints = chartRuns.map((run, index) => {
-      const x = 50 + (index * (500 / (numPoints - 1)));
-      const val = run.metrics?.avgLatency || 0;
-      const y = 160 - (val / maxScale) * 120;
-      return `${x},${y}`;
-    });
-
-    const startX = 50;
-    const endX = 50 + ((numPoints - 1) * (500 / (numPoints - 1)));
-    return `${startX},160 ${linePoints.join(' ')} ${endX},160`;
-  };
+  const hovered = hoveredRunIndex !== null ? chartRuns[hoveredRunIndex] : undefined;
+  const hoveredSuccess = 100 - (hovered?.metrics?.errorRate || 0);
+  const hoveredPassed = hovered?.status === 'completed' && hoveredSuccess === 100;
 
   return (
     <div style={{ padding: '24px', display: 'flex', flexDirection: 'column', gap: '20px', overflowY: 'auto', flex: 1, minHeight: 0 }}>
@@ -95,37 +84,13 @@ export function AnalyticsCharts({ groupId }: AnalyticsChartsProps) {
 
       {/* Aggregate Metric Cards */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '16px' }}>
-        <div style={{ padding: '16px', border: '1px solid var(--border-primary)', borderRadius: 'var(--radius-lg)', backgroundColor: 'var(--bg-secondary)' }}>
-          <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Success Rate</div>
-          <div style={{ fontSize: '24px', fontWeight: 700, color: overallSuccessRate === 100 ? 'var(--status-2xx)' : 'var(--status-5xx)', marginTop: '4px' }}>
-            {overallSuccessRate}%
+        {tiles.map(({ label, value, color, note }) => (
+          <div key={label} style={{ padding: '16px', border: '1px solid var(--border-primary)', borderRadius: 'var(--radius-lg)', backgroundColor: 'var(--bg-secondary)' }}>
+            <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em' }}>{label}</div>
+            <div style={{ fontSize: '24px', fontWeight: 700, color, marginTop: '4px' }}>{value}</div>
+            <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', marginTop: '2px' }}>{note}</div>
           </div>
-          <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', marginTop: '2px' }}>{totalRequests - totalFailed} / {totalRequests} total requests</div>
-        </div>
-
-        <div style={{ padding: '16px', border: '1px solid var(--border-primary)', borderRadius: 'var(--radius-lg)', backgroundColor: 'var(--bg-secondary)' }}>
-          <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Avg Latency (Historical)</div>
-          <div style={{ fontSize: '24px', fontWeight: 700, color: 'var(--text-primary)', marginTop: '4px' }}>
-            {overallAvgLatency} ms
-          </div>
-          <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', marginTop: '2px' }}>Across {totalRunsCount} recorded runs</div>
-        </div>
-
-        <div style={{ padding: '16px', border: '1px solid var(--border-primary)', borderRadius: 'var(--radius-lg)', backgroundColor: 'var(--bg-secondary)' }}>
-          <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Max Latency Recorded</div>
-          <div style={{ fontSize: '24px', fontWeight: 700, color: 'var(--text-primary)', marginTop: '4px' }}>
-            {maxRecordedLatency} ms
-          </div>
-          <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', marginTop: '2px' }}>Single request peak duration</div>
-        </div>
-
-        <div style={{ padding: '16px', border: '1px solid var(--border-primary)', borderRadius: 'var(--radius-lg)', backgroundColor: 'var(--bg-secondary)' }}>
-          <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Total runs</div>
-          <div style={{ fontSize: '24px', fontWeight: 700, color: 'var(--accent-primary)', marginTop: '4px' }}>
-            {totalRunsCount}
-          </div>
-          <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', marginTop: '2px' }}>Retained runs history size</div>
-        </div>
+        ))}
       </div>
 
       {/* Latency Distribution SVG Chart */}
@@ -160,7 +125,7 @@ export function AnalyticsCharts({ groupId }: AnalyticsChartsProps) {
 
             {/* Grid Y Lines & Labels */}
             {[0, 0.25, 0.5, 0.75, 1].map((p, idx) => {
-              const y = 160 - p * 120;
+              const y = Y(p * maxScale);
               const val = Math.round(p * maxScale);
               return (
                 <g key={idx}>
@@ -174,9 +139,8 @@ export function AnalyticsCharts({ groupId }: AnalyticsChartsProps) {
 
             {/* X Labels (Runs) */}
             {chartRuns.map((_, index) => {
-              const x = 50 + (index * (500 / (numPoints - 1 || 1)));
               return (
-                <text key={index} x={x} y="180" textAnchor="middle" fill="var(--text-tertiary)" style={{ fontSize: '9.5px', fontFamily: 'var(--font-mono)' }}>
+                <text key={index} x={X(index)} y="180" textAnchor="middle" fill="var(--text-tertiary)" style={{ fontSize: '9.5px', fontFamily: 'var(--font-mono)' }}>
                   #{totalRunsCount - numPoints + index + 1}
                 </text>
               );
@@ -185,49 +149,33 @@ export function AnalyticsCharts({ groupId }: AnalyticsChartsProps) {
             {numPoints >= 2 ? (
               <>
                 {/* Area under Average Line */}
-                <polygon points={getLatencyAreaPoints()} fill="url(#latencyGrad)" />
+                <polygon points={`50,160 ${linePoints('avgLatency')} 550,160`} fill="url(#latencyGrad)" />
 
                 {/* Average Latency Line */}
-                <polyline points={getLatencyPath('avgLatency')} fill="none" stroke="var(--accent-primary)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                <polyline points={linePoints('avgLatency')} fill="none" stroke="var(--accent-primary)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
 
                 {/* P95 Latency Line */}
-                <polyline points={getLatencyPath('p95')} fill="none" stroke="var(--status-5xx)" strokeWidth="1.5" strokeDasharray="4 3" strokeLinecap="round" strokeLinejoin="round" />
+                <polyline points={linePoints('p95')} fill="none" stroke="var(--status-5xx)" strokeWidth="1.5" strokeDasharray="4 3" strokeLinecap="round" strokeLinejoin="round" />
 
-                {/* Markers for Points */}
+                {/* Markers, plus a larger invisible hover target per run */}
                 {chartRuns.map((run, index) => {
-                  const x = 50 + (index * (500 / (numPoints - 1)));
-                  const yAvg = 160 - ((run.metrics?.avgLatency || 0) / maxScale) * 120;
-                  const yP95 = 160 - ((run.metrics?.p95 || 0) / maxScale) * 120;
+                  const x = X(index);
+                  const yAvg = Y(run.metrics?.avgLatency || 0);
                   const isHovered = hoveredRunIndex === index;
                   return (
                     <g key={index}>
                       <circle cx={x} cy={yAvg} r={isHovered ? 5 : 3.5} fill="var(--bg-secondary)" stroke="var(--accent-primary)" strokeWidth={isHovered ? 2.5 : 1.5} style={{ transition: 'all var(--transition-fast)' }} />
-                      <circle cx={x} cy={yP95} r={isHovered ? 4.5 : 3} fill="var(--bg-secondary)" stroke="var(--status-5xx)" strokeWidth={isHovered ? 2.5 : 1.5} style={{ transition: 'all var(--transition-fast)' }} />
+                      <circle cx={x} cy={Y(run.metrics?.p95 || 0)} r={isHovered ? 4.5 : 3} fill="var(--bg-secondary)" stroke="var(--status-5xx)" strokeWidth={isHovered ? 2.5 : 1.5} style={{ transition: 'all var(--transition-fast)' }} />
+                      <circle
+                        cx={x}
+                        cy={yAvg}
+                        r="16"
+                        fill="transparent"
+                        style={{ cursor: 'pointer', pointerEvents: 'all' }}
+                        onMouseEnter={() => setHoveredRunIndex(index)}
+                        onMouseLeave={() => setHoveredRunIndex(null)}
+                      />
                     </g>
-                  );
-                })}
-
-                {/* Invisible larger hover zone targets for better UX */}
-                {chartRuns.map((run, index) => {
-                  const x = 50 + (index * (500 / (numPoints - 1 || 1)));
-                  const yAvg = 160 - ((run.metrics?.avgLatency || 0) / maxScale) * 120;
-                  return (
-                    <circle
-                      key={`hover-${index}`}
-                      cx={x}
-                      cy={yAvg}
-                      r="16"
-                      fill="transparent"
-                      style={{ cursor: 'pointer', pointerEvents: 'all' }}
-                      onMouseEnter={() => {
-                        setHoveredRunIndex(index);
-                        setTooltipPos({ x, y: yAvg });
-                      }}
-                      onMouseLeave={() => {
-                        setHoveredRunIndex(null);
-                        setTooltipPos(null);
-                      }}
-                    />
                   );
                 })}
               </>
@@ -238,14 +186,14 @@ export function AnalyticsCharts({ groupId }: AnalyticsChartsProps) {
           </svg>
 
           {/* Interactive glassmorphic tooltip card */}
-          {hoveredRunIndex !== null && tooltipPos && chartRuns[hoveredRunIndex] && (
+          {hovered && (
             <div
               style={{
                 position: 'absolute',
-                left: `${(tooltipPos.x / 580) * 100}%`,
-                top: `${(tooltipPos.y / 200) * 100}%`,
+                left: `${(X(hoveredRunIndex!) / 580) * 100}%`,
+                top: `${(Y(hovered.metrics?.avgLatency || 0) / 200) * 100}%`,
                 transform: 'translate(-50%, -100%) translateY(-10px)',
-                backgroundColor: 'rgba(30, 31, 41, 0.85)',
+                backgroundColor: 'var(--bg-elevated)',
                 border: '1px solid var(--border-primary)',
                 borderRadius: 'var(--radius-md)',
                 padding: '8px 12px',
@@ -263,38 +211,19 @@ export function AnalyticsCharts({ groupId }: AnalyticsChartsProps) {
               }}
             >
               <div style={{ fontWeight: 600, color: 'var(--accent-primary)', borderBottom: '1px solid var(--border-secondary)', paddingBottom: '3px', marginBottom: '2px' }}>
-                Run #{totalRunsCount - numPoints + hoveredRunIndex + 1}
+                Run #{totalRunsCount - numPoints + hoveredRunIndex! + 1}
               </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', gap: '16px' }}>
-                <span style={{ color: 'var(--text-secondary)' }}>Status:</span>
-                <span style={{
-                  fontWeight: 600,
-                  color: (chartRuns[hoveredRunIndex].status === 'completed' && (chartRuns[hoveredRunIndex].metrics?.errorRate || 0) === 0)
-                    ? 'var(--status-2xx)'
-                    : 'var(--status-5xx)'
-                }}>
-                  {(chartRuns[hoveredRunIndex].status === 'completed' && (chartRuns[hoveredRunIndex].metrics?.errorRate || 0) === 0) ? 'Passed' : 'Failed'}
-                </span>
-              </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', gap: '16px' }}>
-                <span style={{ color: 'var(--text-secondary)' }}>Average:</span>
-                <span style={{ fontWeight: 500 }}>{chartRuns[hoveredRunIndex].metrics?.avgLatency || 0} ms</span>
-              </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', gap: '16px' }}>
-                <span style={{ color: 'var(--text-secondary)' }}>P95 Latency:</span>
-                <span style={{ fontWeight: 500 }}>{chartRuns[hoveredRunIndex].metrics?.p95 || 0} ms</span>
-              </div>
-              {chartRuns[hoveredRunIndex].metrics && (
-                <div style={{ display: 'flex', justifyContent: 'space-between', gap: '16px' }}>
-                  <span style={{ color: 'var(--text-secondary)' }}>Success Rate:</span>
-                  <span style={{
-                    fontWeight: 600,
-                    color: (100 - (chartRuns[hoveredRunIndex].metrics?.errorRate || 0)) === 100 ? 'var(--status-2xx)' : 'var(--status-5xx)'
-                  }}>
-                    {100 - (chartRuns[hoveredRunIndex].metrics?.errorRate || 0)}%
-                  </span>
+              {[
+                ['Status:', hoveredPassed ? 'Passed' : 'Failed', hoveredPassed ? 'var(--status-2xx)' : 'var(--status-5xx)'],
+                ['Average:', `${Math.round(hovered.metrics?.avgLatency || 0)} ms`],
+                ['P95 Latency:', `${hovered.metrics?.p95 || 0} ms`],
+                ['Success Rate:', `${hoveredSuccess}%`, hoveredSuccess === 100 ? 'var(--status-2xx)' : 'var(--status-5xx)'],
+              ].map(([label, value, color]) => (
+                <div key={label} style={{ display: 'flex', justifyContent: 'space-between', gap: '16px' }}>
+                  <span style={{ color: 'var(--text-secondary)' }}>{label}</span>
+                  <span style={{ fontWeight: color ? 600 : 500, color }}>{value}</span>
                 </div>
-              )}
+              ))}
             </div>
           )}
         </div>

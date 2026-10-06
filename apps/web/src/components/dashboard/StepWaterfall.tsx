@@ -2,27 +2,23 @@ import { useState, useEffect } from 'react';
 import { useExecutionStore } from '@/stores/executionStore';
 import { CheckCircleIcon, XIcon, ChevronDownIcon } from '@/components/common/Icons';
 import type { StepResult } from '@fortest/types';
+import { attemptsLabel, isExecuting, isFailedResult, tint, toneBadge, type Tone } from '@/utils/results';
+
+// Latency bar color: green for 2xx, red otherwise.
+const TONE_BAR = (res: StepResult) => (res.status >= 200 && res.status < 300 ? 'var(--status-2xx)' : 'var(--status-5xx)');
 
 export function StepWaterfall() {
   const { activeRun, selectedStepId, selectedIteration, selectStep } = useExecutionStore();
   const [expandedIterations, setExpandedIterations] = useState<Record<number, boolean>>({ 1: true });
 
-  if (!activeRun) return null;
-
-  const results = activeRun.results || [];
+  const results = activeRun?.results || [];
   
   // Find maximum response time to compute relative bar widths across all results
   const maxResponseTime = Math.max(...results.map((r) => r.responseTime), 1);
 
   // Group results by iteration (defaulting to 1 if iteration is undefined)
   const resultsByIteration: Record<number, StepResult[]> = {};
-  results.forEach((res) => {
-    const iterNum = res.iteration || 1;
-    if (!resultsByIteration[iterNum]) {
-      resultsByIteration[iterNum] = [];
-    }
-    resultsByIteration[iterNum].push(res);
-  });
+  for (const res of results) (resultsByIteration[res.iteration || 1] ??= []).push(res);
 
   // Sort iteration keys numerically
   const iterationKeys = Object.keys(resultsByIteration)
@@ -32,7 +28,7 @@ export function StepWaterfall() {
   // Auto-expand any running iteration as it starts
   useEffect(() => {
     const runningIterations = results
-      .filter((r) => r.statusText === 'Executing...')
+      .filter(isExecuting)
       .map((r) => r.iteration || 1);
 
     if (runningIterations.length > 0) {
@@ -50,6 +46,9 @@ export function StepWaterfall() {
     }
   }, [results]);
 
+  // Early return only after every hook has run (Rules of Hooks).
+  if (!activeRun) return null;
+
   const toggleIteration = (iter: number) => {
     setExpandedIterations((prev) => ({
       ...prev,
@@ -57,31 +56,20 @@ export function StepWaterfall() {
     }));
   };
 
-  const getIterationStatus = (iterSteps: StepResult[]) => {
-    const isExecuting = iterSteps.some((s) => s.statusText === 'Executing...');
-    if (isExecuting) return 'running';
-
-    const isFailed = iterSteps.some((s) => {
-      const hasFailedAssertions = s.assertions?.some((a) => !a.passed);
-      return s.error || s.status >= 400 || s.status === 0 || hasFailedAssertions;
-    });
-    if (isFailed) return 'failed';
-
-    const allCompleted = iterSteps.length > 0 && iterSteps.every((s) => s.status > 0 && s.status < 400 && !s.error);
-    if (allCompleted) return 'passed';
-
-    return 'pending';
+  const getIterationStatus = (iterSteps: StepResult[]): Tone => {
+    if (iterSteps.some(isExecuting)) return 'running';
+    if (iterSteps.some(isFailedResult)) return 'failed';
+    return iterSteps.length > 0 ? 'passed' : 'pending';
   };
 
-  const getStepStatusIcon = (status: number, statusText?: string, error?: string, assertions?: any[]) => {
-    if (statusText === 'Executing...') {
+  const getStepStatusIcon = (res: StepResult) => {
+    if (isExecuting(res)) {
       return <div className="spinner" style={{ width: '14px', height: '14px', borderWidth: '1.5px' }}></div>;
     }
-    const hasFailedAssertions = assertions?.some((a) => !a.passed);
-    if (error || status >= 400 || status === 0 || hasFailedAssertions) {
+    if (isFailedResult(res)) {
       return <XIcon size={16} style={{ color: 'var(--status-5xx)' }} />;
     }
-    if (status >= 200 && status < 300) {
+    if (res.status >= 200 && res.status < 300) {
       return <CheckCircleIcon size={16} style={{ color: 'var(--status-2xx)' }} />;
     }
     return <div style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: 'var(--text-tertiary)' }}></div>;
@@ -107,27 +95,6 @@ export function StepWaterfall() {
           const isExpanded = !!expandedIterations[iter];
           const totalDuration = iterSteps.reduce((sum, s) => sum + s.responseTime, 0);
 
-          let statusColor = 'var(--text-tertiary)';
-          let statusBg = 'var(--bg-hover)';
-          let statusLabel = 'Pending';
-          let statusBorder = 'var(--border-primary)';
-
-          if (status === 'running') {
-            statusColor = 'var(--accent-primary)';
-            statusBg = 'var(--accent-subtle)';
-            statusLabel = 'Running';
-            statusBorder = 'hsla(250, 80%, 65%, 0.25)';
-          } else if (status === 'passed') {
-            statusColor = 'var(--status-2xx)';
-            statusBg = 'hsla(145, 65%, 50%, 0.1)';
-            statusLabel = 'Passed';
-            statusBorder = 'hsla(145, 65%, 50%, 0.15)';
-          } else if (status === 'failed') {
-            statusColor = 'var(--status-5xx)';
-            statusBg = 'hsla(0, 70%, 58%, 0.1)';
-            statusLabel = 'Failed';
-            statusBorder = 'hsla(0, 70%, 58%, 0.15)';
-          }
 
           return (
             <div
@@ -168,12 +135,10 @@ export function StepWaterfall() {
                       letterSpacing: '0.05em',
                       padding: '2px 6px',
                       borderRadius: '4px',
-                      color: statusColor,
-                      backgroundColor: statusBg,
-                      border: `1px solid ${statusBorder}`,
+                      ...toneBadge(status),
                     }}
                   >
-                    {statusLabel}
+                    {status}
                   </span>
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--text-tertiary)' }}>
@@ -209,7 +174,7 @@ export function StepWaterfall() {
                   {iterSteps.map((res) => {
                     const isSelected = selectedStepId === res.stepId && selectedIteration === res.iteration;
                     const relativeWidth = (res.responseTime / maxResponseTime) * 100;
-                    const isExecuting = res.statusText === 'Executing...';
+                    const executing = isExecuting(res);
 
                     return (
                       <div
@@ -231,7 +196,7 @@ export function StepWaterfall() {
                       >
                         {/* Left timeline status icon */}
                         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: '20px', height: '20px', zIndex: 2 }}>
-                          {getStepStatusIcon(res.status, res.statusText, res.error, res.assertions)}
+                          {getStepStatusIcon(res)}
                         </div>
 
                         {/* Step Info */}
@@ -240,16 +205,16 @@ export function StepWaterfall() {
                             {res.stepName}
                           </span>
                           <span style={{ fontSize: '10px', color: 'var(--text-tertiary)' }}>
-                            {isExecuting
+                            {executing
                               ? 'Running request...'
-                              : (res.error || res.status === 0 || res.assertions?.some((a) => !a.passed))
+                              : isFailedResult(res)
                               ? 'Failed'
-                              : `${res.status} · ${res.responseTime}ms`}
+                              : `${res.status} · ${res.responseTime}ms${attemptsLabel(res)}`}
                           </span>
                         </div>
 
                         {/* Latency Waterfall Bar */}
-                        {!isExecuting && res.responseTime > 0 && (
+                        {!executing && res.responseTime > 0 && (
                           <div
                             style={{
                               position: 'absolute',
@@ -257,12 +222,8 @@ export function StepWaterfall() {
                               top: 0,
                               bottom: 0,
                               width: `${relativeWidth}%`,
-                              backgroundColor: res.status >= 200 && res.status < 300
-                                ? 'hsla(145, 65%, 50%, 0.03)'
-                                : 'hsla(0, 70%, 58%, 0.03)',
-                              borderRight: res.status >= 200 && res.status < 300
-                                ? '1.5px solid hsla(145, 65%, 50%, 0.12)'
-                                : '1.5px solid hsla(0, 70%, 58%, 0.12)',
+                              backgroundColor: tint(TONE_BAR(res), 3),
+                              borderRight: `1.5px solid ${tint(TONE_BAR(res), 12)}`,
                               zIndex: 1,
                               pointerEvents: 'none',
                               transition: 'width 0.3s ease',
