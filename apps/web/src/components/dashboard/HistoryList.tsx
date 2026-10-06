@@ -1,19 +1,9 @@
 import { useEffect } from 'react';
 import { useExecutionStore } from '@/stores/executionStore';
 import { ClockIcon, CheckCircleIcon, XIcon } from '@/components/common/Icons';
-import { regressionBadgeStyle, regressionLabel, runTone, runVerdict, toneBadge, VERDICT_LABEL } from '@/utils/results';
+import { regressionBadgeStyle, regressionLabel, relativeTime, runTone, runVerdict, toneBadge, VERDICT_LABEL } from '@/utils/results';
 
 const dateFormat = new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' });
-const relativeFormat = new Intl.RelativeTimeFormat(undefined, { numeric: 'auto' });
-
-function relativeTime(iso: string): string {
-  const seconds = (new Date(iso).getTime() - Date.now()) / 1000;
-  if (Math.abs(seconds) < 60) return 'Just now';
-  for (const [unit, size] of [['day', 86400], ['hour', 3600], ['minute', 60]] as const) {
-    if (Math.abs(seconds) >= size) return relativeFormat.format(Math.round(seconds / size), unit);
-  }
-  return '';
-}
 
 const COLUMNS = ['Execution Date', 'Status', 'Configuration', 'Duration', 'Avg Latency', 'Success Rate'];
 

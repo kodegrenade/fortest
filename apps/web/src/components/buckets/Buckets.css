@@ -23,8 +23,16 @@
   margin-left: 8px;
 }
 
-.group-node__row:hover .group-node__actions {
+/* Hover reveals the actions; keyboard focus does too, and touch screens (no hover) always show them */
+.group-node__row:hover .group-node__actions,
+.group-node__row:focus-within .group-node__actions {
   opacity: 1;
+}
+
+@media (hover: none) {
+  .group-node__actions {
+    opacity: 1;
+  }
 }
 
 .group-node__action-btn {
@@ -150,7 +158,7 @@
 
 /* --- Dashboard Hub Landing Page --- */
 .dashboard-hub {
-  padding: 32px;
+  padding: 32px 32px 112px; /* bottom clears the floating action button */
   width: 100%;
   display: flex;
   flex-direction: column;
@@ -257,8 +265,16 @@
   transition: opacity var(--transition-fast);
 }
 
-.bucket-card:hover .bucket-card__actions {
+/* Hover reveals the actions; keyboard focus does too, and touch screens (no hover) always show them */
+.bucket-card:hover .bucket-card__actions,
+.bucket-card:focus-within .bucket-card__actions {
   opacity: 1;
+}
+
+@media (hover: none) {
+  .bucket-card__actions {
+    opacity: 1;
+  }
 }
 
 /* --- Sidebar Home Button & Layout --- */
@@ -295,7 +311,7 @@
   margin-bottom: 4px;
 }
 
-/* --- Floating Action Button (FAB) Dial Menu --- */
+/* --- Floating Action Button (FAB) Speed Dial: options stack above the trigger, labelled while open --- */
 
 .dashboard-hub__fab-container {
   position: fixed;
@@ -307,126 +323,116 @@
 }
 
 .dashboard-hub__fab-trigger {
-  width: 56px;
-  height: 56px;
-  border-radius: 50%;
-  background: var(--accent-primary);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: #ffffff;
-  cursor: pointer;
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-  border: none;
-  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.4);
-  z-index: 10;
   position: absolute;
   bottom: 0;
   right: 0;
+  z-index: 10;
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  border: none;
+  background: var(--accent-primary);
+  color: #ffffff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  box-shadow: var(--shadow-lg);
+  transition: background var(--transition-fast), transform var(--transition-normal);
 }
 
 .dashboard-hub__fab-trigger:hover {
   background: var(--accent-hover);
-  transform: scale(1.05);
-  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.5);
 }
 
+.dashboard-hub__fab-trigger:focus-visible,
+.dashboard-hub__fab-option:focus-visible {
+  outline: 2px solid var(--accent-primary);
+  outline-offset: 3px;
+}
+
+/* The plus turns into a close cross */
 .dashboard-hub__fab-trigger--open {
-  background: var(--method-delete); /* visual indicator of close action */
-  transform: rotate(90deg);
-}
-
-.dashboard-hub__fab-trigger--open:hover {
-  background: var(--method-delete); /* preserve delete/danger red on hover in open state */
+  transform: rotate(45deg);
 }
 
 .dashboard-hub__fab-option {
   position: absolute;
+  bottom: 5px;
+  right: 5px;
+  z-index: 5;
   width: 46px;
   height: 46px;
   border-radius: 50%;
-  background-color: var(--bg-secondary);
   border: 1px solid var(--border-primary);
+  background-color: var(--bg-secondary);
+  color: var(--text-primary);
   display: flex;
   align-items: center;
   justify-content: center;
-  color: var(--text-primary);
   cursor: pointer;
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.3);
-  z-index: 5;
-  bottom: 5px;
-  right: 5px;
+  box-shadow: var(--shadow-md);
+  /* Hidden (and out of the tab order) until the menu opens; on close, visibility flips after the fade */
+  visibility: hidden;
   opacity: 0;
-  pointer-events: none;
+  transition: transform var(--transition-normal), opacity var(--transition-normal), visibility 0s linear 200ms;
 }
 
 .dashboard-hub__fab-option:hover {
   border-color: var(--accent-primary);
   color: var(--accent-primary);
-  background-color: var(--bg-hover);
-  transform: scale(1.1);
 }
 
-/* Float Options around the main bucket icon (Fanning Out) */
-/* Option 1 (Create Bucket): Diagonal fanning up-left (translate -76px, -20px) */
+.dashboard-hub__fab-container--open .dashboard-hub__fab-option {
+  visibility: visible;
+  opacity: 1;
+  /* Visible at once on open, so the first option can take focus */
+  transition: transform var(--transition-normal), opacity var(--transition-normal), visibility 0s;
+}
+
 .dashboard-hub__fab-container--open .dashboard-hub__fab-option--create {
-  opacity: 1;
-  pointer-events: auto;
-  transform: translate(-76px, -20px);
+  transform: translateY(-64px);
 }
 
-/* Option 2 (Import Bucket): Diagonal fanning left-up (translate -20px, -76px) */
 .dashboard-hub__fab-container--open .dashboard-hub__fab-option--import {
-  opacity: 1;
-  pointer-events: auto;
-  transform: translate(-20px, -76px);
+  transform: translateY(-120px);
 }
 
-/* Label styles */
+/* Labels sit to the left of their option and stay visible while the menu is open */
 .dashboard-hub__fab-label {
   position: absolute;
-  background-color: var(--bg-tertiary);
-  border: 1px solid var(--border-primary);
-  color: var(--text-primary);
-  font-size: 11px;
-  font-weight: 600;
+  right: 56px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  align-items: center;
+  gap: 8px;
   padding: 4px 8px;
   border-radius: var(--radius-sm);
+  border: 1px solid var(--border-primary);
+  background-color: var(--bg-tertiary);
+  color: var(--text-primary);
+  font-size: 12px;
+  font-weight: 600;
   white-space: nowrap;
-  pointer-events: none;
-  opacity: 0;
-  transition: opacity 0.2s ease, transform 0.2s ease;
   box-shadow: var(--shadow-md);
-  z-index: 4;
+  pointer-events: none;
 }
 
-/* Positioning labels relative to the fanning buttons */
-.dashboard-hub__fab-option--create .dashboard-hub__fab-label {
-  bottom: 52px;
-  left: 50%;
-  transform: translateX(-50%) translateY(4px);
+.dashboard-hub__fab-label kbd {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  padding: 0 4px;
+  border-radius: 3px;
+  border: 1px solid var(--border-primary);
+  color: var(--text-secondary);
 }
 
-.dashboard-hub__fab-option--import .dashboard-hub__fab-label {
-  right: 52px;
-  top: 50%;
-  transform: translateY(-50%) translateX(4px);
-}
-
-.dashboard-hub__fab-option:hover .dashboard-hub__fab-label {
-  opacity: 1;
-  transform: translate(0, 0); /* reset transition slide */
-}
-
-/* Adjust create option label transform on hover */
-.dashboard-hub__fab-option--create:hover .dashboard-hub__fab-label {
-  transform: translateX(-50%) translateY(0);
-}
-
-/* Adjust import option label transform on hover */
-.dashboard-hub__fab-option--import:hover .dashboard-hub__fab-label {
-  transform: translateY(-50%) translateX(0);
+@media (prefers-reduced-motion: reduce) {
+  .dashboard-hub__fab-trigger,
+  .dashboard-hub__fab-option {
+    transition: none;
+  }
 }
 
 /* Empty State styling */
@@ -692,6 +698,7 @@
 
 
 /* --- Dashboard Hub List View --- */
+
 .dashboard-hub__list {
   display: flex;
   flex-direction: column;
@@ -787,8 +794,16 @@
   transition: opacity var(--transition-fast);
 }
 
-.bucket-list-item:hover .bucket-list-item__actions {
+/* Hover reveals the actions; keyboard focus does too, and touch screens (no hover) always show them */
+.bucket-list-item:hover .bucket-list-item__actions,
+.bucket-list-item:focus-within .bucket-list-item__actions {
   opacity: 1;
+}
+
+@media (hover: none) {
+  .bucket-list-item__actions {
+    opacity: 1;
+  }
 }
 
 /* --- View Switcher --- */
@@ -826,3 +841,60 @@
   background-color: var(--accent-primary) !important;
 }
 
+/* --- Hub list view: last run column --- */
+.bucket-list-item__last-run {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 170px;
+  font-size: 12px;
+  color: var(--text-tertiary);
+  white-space: nowrap;
+}
+
+.bucket-list-item__verdict {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+
+.bucket-card:focus-visible,
+.bucket-list-item:focus-visible {
+  outline: 2px solid var(--accent-primary);
+  outline-offset: 2px;
+}
+
+/* Phones: name, verdict and time only */
+@media (max-width: 600px) {
+  .bucket-list-item__url,
+  .bucket-list-item__url-empty,
+  .bucket-list-item__meta,
+  .bucket-list-item__env {
+    display: none;
+  }
+
+  .bucket-list-item__last-run {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  /* Name on its own line; last run and actions underneath */
+  .bucket-list-item {
+    flex-wrap: wrap;
+    row-gap: 8px;
+  }
+
+  .bucket-list-item__left {
+    flex-basis: 100%;
+  }
+
+  .bucket-list-item__right {
+    flex: 1 1 100%;
+    min-width: 0;
+    gap: 8px;
+    justify-content: space-between;
+  }
+}

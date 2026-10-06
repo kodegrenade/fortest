@@ -89,3 +89,15 @@ export function formatBytes(bytes: number): string {
   if (bytes < 1024 * 1024) return `${parseFloat((bytes / 1024).toFixed(2))} KB`;
   return `${parseFloat((bytes / 1024 / 1024).toFixed(2))} MB`;
 }
+
+const relativeFormat = new Intl.RelativeTimeFormat(undefined, { numeric: 'auto' });
+
+/** "Just now", "5 minutes ago", "yesterday" (for timestamps in the past). */
+export function relativeTime(iso: string): string {
+  const seconds = (new Date(iso).getTime() - Date.now()) / 1000;
+  if (Math.abs(seconds) < 60) return 'Just now';
+  for (const [unit, size] of [['day', 86400], ['hour', 3600], ['minute', 60]] as const) {
+    if (Math.abs(seconds) >= size) return relativeFormat.format(Math.round(seconds / size), unit);
+  }
+  return '';
+}

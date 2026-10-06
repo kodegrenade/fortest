@@ -33,6 +33,7 @@ import {
   cancelRun,
   failOrphanedRuns,
   getGroupRuns,
+  getLatestRunsByBucket,
   getRunById,
   getRunSummary,
   runGroup,
@@ -1515,4 +1516,22 @@ test('bucket files: exports carry formatVersion; newer formats are refused with 
     () => prepareImport({ formatVersion: BUCKET_FORMAT_VERSION + 1, name: 'future' }),
     /uses format version 2; this version of Fortest reads up to 1\. Upgrade Fortest/,
   );
+});
+
+test('hub: each bucket shows its newest run across groups; buckets never run are left out', async () => {
+  const now = new Date().toISOString();
+  const group = () => ({ id: randomUUID(), name: 'g', order: 0, steps: [], createdAt: now, updatedAt: now });
+  const ran = TestBucketSchema.parse({ id: randomUUID(), name: 'ran', createdAt: now, updatedAt: now, actionGroups: [group(), group()] });
+  const idle = TestBucketSchema.parse({ id: randomUUID(), name: 'idle', createdAt: now, updatedAt: now, actionGroups: [group()] });
+  const adapter = getStorageAdapter();
+  const older = pastRun(10, { createdAt: '2026-01-01T00:00:00.000Z' });
+  const newer = pastRun(20, { createdAt: '2026-02-01T00:00:00.000Z' });
+  for (const [run, g] of [[older, ran.actionGroups[0]!], [newer, ran.actionGroups[1]!]] as const) {
+    await adapter.set(`run:${run.id}`, JSON.stringify(run));
+    await adapter.zadd(`group:${g.id}:runs`, Date.parse(run.createdAt), run.id);
+  }
+
+  const latest = await getLatestRunsByBucket([ran, idle]);
+  assert.equal(latest[ran.id]?.id, newer.id);
+  assert.equal(idle.id in latest, false);
 });
