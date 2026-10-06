@@ -43,6 +43,7 @@ import { saveBucket, getBucketById } from './services/bucketService';
 import {
   computeMetrics,
   convertPostmanCollection,
+  describeRequestError,
   evaluateAssertion,
   executeGroup,
   extractValue,
@@ -1534,4 +1535,19 @@ test('hub: each bucket shows its newest run across groups; buckets never run are
   const latest = await getLatestRunsByBucket([ran, idle]);
   assert.equal(latest[ran.id]?.id, newer.id);
   assert.equal(idle.id in latest, false);
+});
+
+test('describeRequestError: says why a request got no response, not just "fetch failed"', () => {
+  const failed = (code: string, message: string) =>
+    new TypeError('fetch failed', { cause: Object.assign(new Error(message), { code }) });
+
+  const tls = describeRequestError(failed('SELF_SIGNED_CERT_IN_CHAIN', 'self-signed certificate in certificate chain'));
+  assert.match(tls, /^HTTPS certificate not trusted \(SELF_SIGNED_CERT_IN_CHAIN\)/);
+  assert.match(tls, /NODE_EXTRA_CA_CERTS/);
+  assert.match(describeRequestError(failed('ENOTFOUND', 'getaddrinfo ENOTFOUND nope.invalid')), /^Could not resolve the host/);
+  assert.match(describeRequestError(failed('ECONNREFUSED', 'connect ECONNREFUSED')), /^Connection refused/);
+  assert.equal(describeRequestError(failed('EPIPE', 'write EPIPE')), 'write EPIPE (EPIPE)');
+  assert.equal(describeRequestError(Object.assign(new Error('x'), { name: 'TimeoutError' })), 'The request timed out');
+  assert.equal(describeRequestError(new Error('Invalid URL')), 'Invalid URL');
+  assert.equal(describeRequestError('?'), 'Unknown network or execution error');
 });

@@ -7,3 +7,4 @@ export { extractValue, resolveDotPath, selectValue, stringify } from './extracti
 export { convertPostmanCollection, isPostmanCollection } from './postmanConverter';
 export type { ConversionResult } from './postmanConverter';
 export { prepareImport, toExportFile, withoutSecretValues } from './bucketFiles';
+export { describeRequestError, trustSystemCertificates } from './certificates';
