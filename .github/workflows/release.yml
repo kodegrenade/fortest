@@ -39,9 +39,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      id-token: write # npm trusted publishing (OIDC) and provenance
-    env:
-      NPM_TOKEN: ${{ secrets.NPM_TOKEN }} # optional fallback; not needed once trusted publishing is set up
+      id-token: write # npm trusted publishing (OIDC) and provenance; no npm token is stored
     steps:
       - uses: actions/checkout@v4
         with:
@@ -65,6 +63,11 @@ jobs:
           pnpm --filter @codegrenade/fortest-cli build
           pnpm --filter @codegrenade/fortest-cli test:package
 
+      - name: Check npm supports trusted publishing
+        run: |
+          npm --version
+          node -e "const [a,b,c]=process.argv[1].split('.').map(Number); if (a<11||(a===11&&(b<5||(b===5&&c<1)))) { console.error('npm '+process.argv[1]+' is too old for trusted publishing (needs 11.5.1+)'); process.exit(1) }" "$(npm --version)"
+
       - name: Publish to npm
         working-directory: packages/cli/dist
         run: |
@@ -72,7 +75,6 @@ jobs:
             echo "Version ${{ needs.release-please.outputs.version }} is already on npm; skipping."
             exit 0
           fi
-          if [ -n "$NPM_TOKEN" ]; then echo "//registry.npmjs.org/:_authToken=${NPM_TOKEN}" > ~/.npmrc; fi
           npm publish --provenance --access public
 
   docker:
