@@ -1,8 +1,8 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { randomUUID } from 'node:crypto';
-import { runGroup, getRunById, getGroupRuns, cancelRun } from '../services/runnerService';
-import { getBucketById } from '../services/bucketService';
+import { runGroup, getRunById, getGroupRuns, cancelRun, getLatestRunsByBucket } from '../services/runnerService';
+import { getAllBuckets, getBucketById } from '../services/bucketService';
 import { broadcastToRun } from '../services/websocketService';
 import { ExecutionConfigSchema, type ApiError } from '@fortest/types';
 
@@ -33,6 +33,14 @@ router.get('/', async (req, res) => {
   }
 
   res.json(await getGroupRuns(groupId));
+});
+
+/**
+ * GET /api/runs/latest
+ * Each bucket's most recent run (summary only), keyed by bucket id, for the dashboard hub.
+ */
+router.get('/latest', async (_req, res) => {
+  res.json(await getLatestRunsByBucket(await getAllBuckets()));
 });
 
 /**

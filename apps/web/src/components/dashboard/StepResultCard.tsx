@@ -10,7 +10,10 @@ interface StepResultCardProps {
 type TabType = 'overview' | 'headers' | 'requestBody' | 'body' | 'assertions' | 'extractions';
 
 export function StepResultCard({ result }: StepResultCardProps) {
-  const [activeTab, setActiveTab] = useState<TabType>('overview');
+  // A failed assertion is the reason the step failed, so show it first (the card is keyed per step).
+  const [activeTab, setActiveTab] = useState<TabType>(() =>
+    result.assertions.some((a) => !a.passed) ? 'assertions' : 'overview',
+  );
 
   const statusColor = isExecuting(result)
     ? 'var(--accent-primary)'

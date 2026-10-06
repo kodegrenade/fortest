@@ -18,9 +18,9 @@ export const TONE_COLOR: Record<Tone, string> = {
   pending: 'var(--text-tertiary)',
 };
 
-/** Tone for a run or background-job status. */
+/** Tone for a run verdict or background-job status. */
 export const runTone = (status: string): Tone =>
-  status === 'completed'
+  status === 'completed' || status === 'passed'
     ? 'passed'
     : status === 'failed'
       ? 'failed'
@@ -28,7 +28,21 @@ export const runTone = (status: string): Tone =>
         ? 'running'
         : 'pending';
 
-/** A theme color at the given opacity (follows the active color preset). */
+export type RunVerdict = 'passed' | 'failed' | 'running' | 'cancelled' | 'pending';
+
+/** A run's outcome as users read it: "completed" only means it ran to the end, so any failed request makes it failed. */
+export const runVerdict = (run: Pick<RunSummary, 'status' | 'metrics'>): RunVerdict =>
+  run.status === 'completed' ? ((run.metrics?.failed ?? 0) > 0 ? 'failed' : 'passed') : run.status;
+
+export const VERDICT_LABEL: Record<RunVerdict, string> = {
+  passed: 'Passed',
+  failed: 'Failed',
+  running: 'Running',
+  cancelled: 'Cancelled',
+  pending: 'Pending',
+};
+
+/** A theme color at the given opacity (follows light/dark). */
 export const tint = (color: string, percent: number) =>
   `color-mix(in srgb, ${color} ${percent}%, transparent)`;
 
@@ -74,4 +88,16 @@ export function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${parseFloat((bytes / 1024).toFixed(2))} KB`;
   return `${parseFloat((bytes / 1024 / 1024).toFixed(2))} MB`;
+}
+
+const relativeFormat = new Intl.RelativeTimeFormat(undefined, { numeric: 'auto' });
+
+/** "Just now", "5 minutes ago", "yesterday" (for timestamps in the past). */
+export function relativeTime(iso: string): string {
+  const seconds = (new Date(iso).getTime() - Date.now()) / 1000;
+  if (Math.abs(seconds) < 60) return 'Just now';
+  for (const [unit, size] of [['day', 86400], ['hour', 3600], ['minute', 60]] as const) {
+    if (Math.abs(seconds) >= size) return relativeFormat.format(Math.round(seconds / size), unit);
+  }
+  return '';
 }

@@ -1,19 +1,9 @@
 import { useEffect } from 'react';
 import { useExecutionStore } from '@/stores/executionStore';
 import { ClockIcon, CheckCircleIcon, XIcon } from '@/components/common/Icons';
-import { regressionBadgeStyle, regressionLabel, runTone, toneBadge } from '@/utils/results';
+import { regressionBadgeStyle, regressionLabel, relativeTime, runTone, runVerdict, toneBadge, VERDICT_LABEL } from '@/utils/results';
 
 const dateFormat = new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' });
-const relativeFormat = new Intl.RelativeTimeFormat(undefined, { numeric: 'auto' });
-
-function relativeTime(iso: string): string {
-  const seconds = (new Date(iso).getTime() - Date.now()) / 1000;
-  if (Math.abs(seconds) < 60) return 'Just now';
-  for (const [unit, size] of [['day', 86400], ['hour', 3600], ['minute', 60]] as const) {
-    if (Math.abs(seconds) >= size) return relativeFormat.format(Math.round(seconds / size), unit);
-  }
-  return '';
-}
 
 const COLUMNS = ['Execution Date', 'Status', 'Configuration', 'Duration', 'Avg Latency', 'Success Rate'];
 
@@ -54,12 +44,11 @@ export function HistoryList({ groupId }: HistoryListProps) {
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <div>
           <h3 style={{ fontSize: '16px', fontWeight: 700, color: 'var(--text-primary)' }}>Historical Execution Runs</h3>
-          <p style={{ fontSize: '12.5px', color: 'var(--text-secondary)' }}>Review metrics, assertions, and responses of the last 50 execution runs.</p>
+          <p style={{ fontSize: '12.5px', color: 'var(--text-secondary)' }}>The last 50 runs. Click a run to inspect its steps, assertions and responses.</p>
         </div>
         <button
-          className="btn btn--secondary"
+          className="btn btn--secondary btn--sm"
           onClick={() => loadRuns(groupId)}
-          style={{ fontSize: '12px', padding: '6px 12px' }}
           disabled={pastRunsLoading}
         >
           {pastRunsLoading ? 'Refreshing...' : 'Refresh List'}
@@ -73,7 +62,6 @@ export function HistoryList({ groupId }: HistoryListProps) {
               {COLUMNS.map((c) => (
                 <th key={c} style={{ padding: '12px 16px' }}>{c}</th>
               ))}
-              <th style={{ padding: '12px 16px', textAlign: 'right' }}>Actions</th>
             </tr>
           </thead>
           <tbody>
@@ -82,17 +70,23 @@ export function HistoryList({ groupId }: HistoryListProps) {
               const metrics = run.metrics;
               const hasMetrics = !!metrics;
 
-              const successRate = 100 - Math.round(metrics?.errorRate ?? 0);
-              const isSuccess = run.status === 'completed' && successRate === 100;
+              // Rounded down: a single failure must never display as 100%.
+              const successRate = Math.floor(100 - (metrics?.errorRate ?? 0));
+              const verdict = runVerdict(run);
 
               return (
                 <tr
                   key={run.id}
-                  style={{
-                    borderBottom: '1px solid var(--border-secondary)',
-                    transition: 'background-color var(--transition-fast)',
+                  className="history-row"
+                  tabIndex={0}
+                  aria-label={`Inspect run from ${dateFormat.format(new Date(run.createdAt))}`}
+                  onClick={() => viewHistoricalRun(run.id)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault();
+                      viewHistoricalRun(run.id);
+                    }
                   }}
-                  className="table-row-hover"
                 >
                   <td style={{ padding: '14px 16px' }}>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
@@ -115,18 +109,18 @@ export function HistoryList({ groupId }: HistoryListProps) {
                         textTransform: 'uppercase',
                         padding: '2px 8px',
                         borderRadius: '4px',
-                        ...toneBadge(isSuccess ? 'passed' : run.status === 'completed' ? 'failed' : runTone(run.status), 12),
+                        ...toneBadge(runTone(verdict), 12),
                         border: 'none',
                       }}
                     >
-                      {isSuccess ? (
+                      {verdict === 'passed' ? (
                         <CheckCircleIcon size={12} />
-                      ) : run.status === 'running' ? (
+                      ) : verdict === 'running' ? (
                         <div className="spinner" style={{ width: '10px', height: '10px', borderWidth: '1px' }}></div>
                       ) : (
                         <XIcon size={12} />
                       )}
-                      {run.status === 'running' ? 'Running' : run.status === 'cancelled' ? 'Cancelled' : isSuccess ? 'Passed' : 'Failed'}
+                      {VERDICT_LABEL[verdict]}
                     </span>
                     {run.regression && (
                       <span style={{ ...regressionBadgeStyle, display: 'inline-block', marginTop: '4px' }} title={regressionLabel(run.regression)}>
@@ -168,15 +162,6 @@ export function HistoryList({ groupId }: HistoryListProps) {
                     ) : (
                       '—'
                     )}
-                  </td>
-                  <td style={{ padding: '14px 16px', textAlign: 'right' }}>
-                    <button
-                      className="btn btn--primary"
-                      onClick={() => viewHistoricalRun(run.id)}
-                      style={{ padding: '4px 10px', fontSize: '11.5px', borderRadius: '4px' }}
-                    >
-                      Inspect
-                    </button>
                   </td>
                 </tr>
               );

@@ -1,19 +1,21 @@
 import { create } from 'zustand';
 
-type SidebarSection = 'collections' | 'history' | 'environments';
+/** Below this width the expanded sidebar overlays the content instead of pushing it (see components.css). */
+const isNarrow = () => window.matchMedia('(max-width: 900px)').matches;
 
 interface SidebarState {
-  activeSection: SidebarSection;
   isCollapsed: boolean;
-  setActiveSection: (section: SidebarSection) => void;
   toggleCollapse: () => void;
+  /** Closes the overlaid sidebar after a pick on narrow screens; no-op on desktop. */
+  collapseIfNarrow: () => void;
 }
 
 export const useSidebarStore = create<SidebarState>((set) => ({
-  activeSection: 'collections',
-  isCollapsed: false,
-
-  setActiveSection: (section) => set({ activeSection: section }),
+  isCollapsed: isNarrow(),
 
   toggleCollapse: () => set((state) => ({ isCollapsed: !state.isCollapsed })),
+
+  collapseIfNarrow: () => {
+    if (isNarrow()) set({ isCollapsed: true });
+  },
 }));

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useExecutionStore } from '@/stores/executionStore';
 import { ClockIcon } from '@/components/common/Icons';
+import { runVerdict } from '@/utils/results';
 
 interface AnalyticsChartsProps {
   groupId: string;
@@ -42,7 +43,7 @@ export function AnalyticsCharts({ groupId }: AnalyticsChartsProps) {
   const totalRunsCount = completedRuns.length;
   const totalRequests = completedRuns.reduce((sum, r) => sum + (r.metrics?.totalRequests || 0), 0);
   const totalFailed = completedRuns.reduce((sum, r) => sum + (r.metrics?.failed || 0), 0);
-  const overallSuccessRate = totalRequests > 0 ? Math.round(((totalRequests - totalFailed) / totalRequests) * 100) : 100;
+  const overallSuccessRate = totalRequests > 0 ? Math.floor(((totalRequests - totalFailed) / totalRequests) * 100) : 100;
 
   const latencies = completedRuns.map((r) => r.metrics?.avgLatency || 0);
   const overallAvgLatency = Math.round(latencies.reduce((sum, l) => sum + l, 0) / totalRunsCount);
@@ -72,8 +73,8 @@ export function AnalyticsCharts({ groupId }: AnalyticsChartsProps) {
   ];
 
   const hovered = hoveredRunIndex !== null ? chartRuns[hoveredRunIndex] : undefined;
-  const hoveredSuccess = 100 - (hovered?.metrics?.errorRate || 0);
-  const hoveredPassed = hovered?.status === 'completed' && hoveredSuccess === 100;
+  const hoveredSuccess = Math.floor(100 - (hovered?.metrics?.errorRate || 0));
+  const hoveredPassed = !!hovered && runVerdict(hovered) === 'passed';
 
   return (
     <div style={{ padding: '24px', display: 'flex', flexDirection: 'column', gap: '20px', overflowY: 'auto', flex: 1, minHeight: 0 }}>

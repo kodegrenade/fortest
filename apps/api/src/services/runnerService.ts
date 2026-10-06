@@ -3,6 +3,7 @@ import { getStorageAdapter } from './storage';
 import { executeGroup, resolveConfig } from '@fortest/engine';
 import { activeEnvironment, detectRegression } from '@fortest/utils';
 import type {
+  TestBucket,
   StepResult,
   ExecutionRun,
   ExecutionConfig,
@@ -174,4 +175,21 @@ export async function getGroupRuns(groupId: string): Promise<RunSummary[]> {
   const runIds = await getStorageAdapter().zrevrange(`group:${groupId}:runs`, 0, -1);
   const summaries = await Promise.all(runIds.map(getRunSummary));
   return summaries.filter((r): r is RunSummary => r !== null);
+}
+
+/** Each bucket's most recent run across its action groups, keyed by bucket id (buckets never run are absent). */
+export async function getLatestRunsByBucket(buckets: TestBucket[]): Promise<Record<string, RunSummary>> {
+  const adapter = getStorageAdapter();
+  const latest: Record<string, RunSummary> = {};
+  await Promise.all(
+    buckets.flatMap((bucket) =>
+      bucket.actionGroups.map(async (group) => {
+        const [runId] = await adapter.zrevrange(`group:${group.id}:runs`, 0, 0);
+        const run = runId ? await getRunSummary(runId) : null;
+        const current = latest[bucket.id];
+        if (run && (!current || run.createdAt > current.createdAt)) latest[bucket.id] = run;
+      }),
+    ),
+  );
+  return latest;
 }

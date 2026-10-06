@@ -440,9 +440,8 @@ export function StepEditor({ bucketId, groupId, stepId }: StepEditorProps) {
                     {body.type === 'json' && !bodyError && (
                       <button
                         type="button"
-                        className="btn btn--ghost"
+                        className="btn btn--ghost btn--xs"
                         title="Beautify and format JSON body content"
-                        style={{ fontSize: '10px', padding: '2px 6px' }}
                         onClick={handleBeautifyJson}
                       >
                         Beautify / Format

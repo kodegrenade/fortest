@@ -6,12 +6,16 @@ import { subscribeToRun, unsubscribeFromRun, clearClientSubscriptions } from './
 import { getRunById, failOrphanedRuns } from './services/runnerService';
 import type { RunEvent } from '@fortest/types';
 import { isLocalRequest } from './middleware/security';
+import { trustSystemCertificates } from '@fortest/engine';
 
 const PORT = parseInt(process.env['PORT'] ?? '3001', 10);
 // Loopback only by default; Docker sets HOST=0.0.0.0 and publishes the port on 127.0.0.1 instead.
 const HOST = process.env['HOST'] ?? '127.0.0.1';
 
 async function start(): Promise<void> {
+  // Runs call real APIs over HTTPS: trust the OS's certificates too (corporate proxies, local CAs).
+  trustSystemCertificates();
+
   // Attempt Redis connection (non-fatal if it fails)
   await connectRedis();
 

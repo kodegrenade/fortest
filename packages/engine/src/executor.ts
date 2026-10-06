@@ -24,6 +24,7 @@ import type {
   StepResult,
   TestBucket,
 } from '@fortest/types';
+import { describeRequestError } from './certificates';
 
 // The execution engine: runs an action group and reports events and results. No storage, so the
 // API (which persists runs) and the CLI (which doesn't) run exactly the same code.
@@ -317,7 +318,7 @@ export async function executeGroup(
           contentType: 'text/plain',
           extractedData: {},
           assertions: [],
-          error: stepErr instanceof Error ? stepErr.message : 'Unknown network or execution error',
+          error: describeRequestError(stepErr),
           requestBody: requestBodyText,
           timestamp: new Date().toISOString(),
           url: url || step.path,

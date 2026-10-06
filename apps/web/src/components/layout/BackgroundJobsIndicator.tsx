@@ -174,10 +174,10 @@ export function BackgroundJobsIndicator() {
                         <span>{job.completedSteps}/{job.totalSteps} steps</span>
                       </div>
                       <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '4px' }}>
-                        <button type="button" className="btn btn--ghost" style={{ fontSize: '10px', padding: '2px 6px', height: 'auto', color: 'var(--status-5xx)' }} onClick={() => cancelRun(job.runId)}>
+                        <button type="button" className="btn btn--ghost btn--xs btn--danger" onClick={() => cancelRun(job.runId)}>
                           Stop
                         </button>
-                        <button type="button" className="btn btn--ghost" style={{ fontSize: '10px', padding: '2px 6px', height: 'auto' }} onClick={() => handleInspect(job)}>
+                        <button type="button" className="btn btn--ghost btn--xs" onClick={() => handleInspect(job)}>
                           Inspect
                         </button>
                       </div>
@@ -206,8 +206,7 @@ export function BackgroundJobsIndicator() {
                       </span>
                       <button
                         type="button"
-                        className="btn btn--ghost"
-                        style={{ fontSize: '10px', padding: '2px 6px', height: 'auto' }}
+                        className="btn btn--ghost btn--xs"
                         onClick={() => handleInspect(job)}
                       >
                         Inspect

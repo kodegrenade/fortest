@@ -16,6 +16,7 @@ import '../buckets/Buckets.css';
 export function Sidebar() {
   const isCollapsed = useSidebarStore((s) => s.isCollapsed);
   const toggleCollapse = useSidebarStore((s) => s.toggleCollapse);
+  const collapseIfNarrow = useSidebarStore((s) => s.collapseIfNarrow);
 
   const {
     buckets,
@@ -41,11 +42,11 @@ export function Sidebar() {
         <button
           className="sidebar__home-btn"
           onClick={() => setActiveBucket(null)}
-          title="Back to Dashboard Hub"
+          title="Back to all buckets"
           style={isCollapsed ? { width: '32px', height: '32px', padding: 0, justifyContent: 'center' } : {}}
         >
           <HomeIcon size={16} style={{ flexShrink: 0 }} />
-          {!isCollapsed && <span>Dashboard Hub</span>}
+          {!isCollapsed && <span>All Buckets</span>}
         </button>
 
         {!isCollapsed && (
@@ -110,6 +111,7 @@ export function Sidebar() {
                     title={`${group.name} (${group.steps?.length || 0} steps)`}
                     onClick={() => {
                       setActiveGroup(group.id);
+                      collapseIfNarrow();
                     }}
                   >
                     <LayersIcon size={18} />
@@ -133,6 +135,7 @@ export function Sidebar() {
                         className={`group-node__row ${isGroupActive ? 'group-node__row--active' : ''}`}
                         onClick={() => {
                           setActiveGroup(group.id);
+                          collapseIfNarrow();
                         }}
                         style={{ margin: 0 }}
                       >

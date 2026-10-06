@@ -21,10 +21,12 @@ export function RunConfigModal({ bucketId, groupId, onClose }: RunConfigModalPro
   const bucket = buckets.find((b) => b.id === bucketId);
   const group = bucket?.actionGroups.find((g) => g.id === groupId);
 
-  const [iterations, setIterations] = useState(1);
+  // A group with a data store attached runs once per record by default.
+  const attachedRecords = group?.dataStore?.records.length ?? 0;
+  const [iterations, setIterations] = useState(Math.max(1, Math.min(10000, attachedRecords)));
   const [concurrency, setConcurrency] = useState(1);
   const [delay, setDelay] = useState(0);
-  const [useDataStore, setUseDataStore] = useState(false);
+  const [useDataStore, setUseDataStore] = useState(attachedRecords > 0);
 
   // File states
   const [isDragging, setIsDragging] = useState(false);
@@ -38,6 +40,12 @@ export function RunConfigModal({ bucketId, groupId, onClose }: RunConfigModalPro
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   if (!bucket || !group) return null;
+
+  const setIterationCount = (value: number) => {
+    const val = Math.min(10000, Math.max(1, value));
+    setIterations(val);
+    if (val === 1) setConcurrency(1);
+  };
 
   // A data store is a list of records: a JSON array of objects, or a CSV whose header row names the keys.
   const handleFileContent = (fileName: string, contentStr: string) => {
@@ -58,6 +66,7 @@ export function RunConfigModal({ bucketId, groupId, onClose }: RunConfigModalPro
         name: fileName,
         records: parsed as Record<string, any>[],
       });
+      setIterationCount(parsed.length);
       setUploadError(null);
       addToast(`Data store loaded: ${parsed.length} records parsed successfully`, 'success');
     } catch (err: any) {
@@ -138,6 +147,8 @@ export function RunConfigModal({ bucketId, groupId, onClose }: RunConfigModalPro
   };
 
   const hasDataStoreAttached = group.dataStore && !isRemovingAttachedStore;
+  // Records cycle across iterations (executor: records[(iteration - 1) % records.length]).
+  const recordCount = !useDataStore ? 0 : uploadedFile ? uploadedFile.records.length : hasDataStoreAttached ? attachedRecords : 0;
 
   return (
     <Modal onClose={onClose} style={{ maxWidth: '460px' }}>
@@ -161,12 +172,17 @@ export function RunConfigModal({ bucketId, groupId, onClose }: RunConfigModalPro
               min={1}
               max={10000}
               value={iterations}
-              onChange={(e) => {
-                const val = Math.min(10000, Math.max(1, parseInt(e.target.value) || 1));
-                setIterations(val);
-                if (val === 1) setConcurrency(1);
-              }}
+              onChange={(e) => setIterationCount(parseInt(e.target.value) || 1)}
             />
+            {recordCount > 0 && (
+              <span style={{ fontSize: '11px', color: iterations < recordCount ? 'var(--status-3xx)' : 'var(--text-tertiary)' }}>
+                {iterations === recordCount
+                  ? `One iteration per record (${recordCount} records).`
+                  : iterations < recordCount
+                    ? `Only the first ${iterations} of ${recordCount} records will run.`
+                    : `${recordCount} records repeat across ${iterations} iterations.`}
+              </span>
+            )}
           </div>
 
           {/* Concurrency */}
@@ -201,42 +217,21 @@ export function RunConfigModal({ bucketId, groupId, onClose }: RunConfigModalPro
             />
           </div>
 
-          {/* Data Store Toggle (Clean Switcher) */}
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: '4px', padding: '4px 0' }}>
+          {/* Data Store Toggle */}
+          <label className="switch" style={{ marginTop: '4px', padding: '4px 0' }}>
             <span style={{ fontSize: '13px', fontWeight: 500, color: 'var(--text-primary)' }}>
               Drive iterations from a Data Store
             </span>
-            <label style={{ position: 'relative', display: 'inline-block', width: '36px', height: '20px', flexShrink: 0, cursor: 'pointer' }}>
-              <input
-                type="checkbox"
-                checked={useDataStore}
-                onChange={(e) => setUseDataStore(e.target.checked)}
-                style={{ opacity: 0, width: 0, height: 0 }}
-              />
-              <span style={{
-                position: 'absolute',
-                top: 0,
-                left: 0,
-                right: 0,
-                bottom: 0,
-                backgroundColor: useDataStore ? 'var(--accent-primary)' : 'var(--bg-hover)',
-                transition: 'all 0.2s ease',
-                borderRadius: '20px',
-                border: '1px solid var(--border-primary)',
-              }}>
-                <span style={{
-                  position: 'absolute',
-                  height: '12px',
-                  width: '12px',
-                  left: useDataStore ? '20px' : '3px',
-                  bottom: '3px',
-                  backgroundColor: useDataStore ? '#ffffff' : 'var(--text-secondary)',
-                  transition: 'all 0.2s ease',
-                  borderRadius: '50%',
-                }} />
-              </span>
-            </label>
-          </div>
+            <input
+              type="checkbox"
+              role="switch"
+              checked={useDataStore}
+              onChange={(e) => {
+                setUseDataStore(e.target.checked);
+                if (e.target.checked && hasDataStoreAttached) setIterationCount(attachedRecords);
+              }}
+            />
+          </label>
 
           {/* Data Store File Upload */}
           {useDataStore && (
@@ -270,8 +265,8 @@ export function RunConfigModal({ bucketId, groupId, onClose }: RunConfigModalPro
                   </div>
                   <button
                     type="button"
-                    className="btn btn--ghost"
-                    style={{ padding: '4px 8px', fontSize: '11px', color: 'var(--method-delete)', flexShrink: 0 }}
+                    className="btn btn--ghost btn--xs btn--danger"
+                    style={{ flexShrink: 0 }}
                     onClick={handleClearExistingDataStore}
                   >
                     Remove
@@ -289,8 +284,8 @@ export function RunConfigModal({ bucketId, groupId, onClose }: RunConfigModalPro
                   </div>
                   <button
                     type="button"
-                    className="btn btn--ghost"
-                    style={{ padding: '4px 8px', fontSize: '11px', flexShrink: 0 }}
+                    className="btn btn--ghost btn--xs"
+                    style={{ flexShrink: 0 }}
                     onClick={handleClearUploadedFile}
                   >
                     Clear
@@ -345,7 +340,6 @@ export function RunConfigModal({ bucketId, groupId, onClose }: RunConfigModalPro
           <button
             type="submit"
             className="btn btn--primary"
-            style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
             disabled={useDataStore && !uploadedFile && !hasDataStoreAttached}
           >
             <PlayIcon size={14} /> Run Flow

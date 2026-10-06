@@ -33,6 +33,7 @@ import {
   cancelRun,
   failOrphanedRuns,
   getGroupRuns,
+  getLatestRunsByBucket,
   getRunById,
   getRunSummary,
   runGroup,
@@ -42,6 +43,7 @@ import { saveBucket, getBucketById } from './services/bucketService';
 import {
   computeMetrics,
   convertPostmanCollection,
+  describeRequestError,
   evaluateAssertion,
   executeGroup,
   extractValue,
@@ -1515,4 +1517,37 @@ test('bucket files: exports carry formatVersion; newer formats are refused with 
     () => prepareImport({ formatVersion: BUCKET_FORMAT_VERSION + 1, name: 'future' }),
     /uses format version 2; this version of Fortest reads up to 1\. Upgrade Fortest/,
   );
+});
+
+test('hub: each bucket shows its newest run across groups; buckets never run are left out', async () => {
+  const now = new Date().toISOString();
+  const group = () => ({ id: randomUUID(), name: 'g', order: 0, steps: [], createdAt: now, updatedAt: now });
+  const ran = TestBucketSchema.parse({ id: randomUUID(), name: 'ran', createdAt: now, updatedAt: now, actionGroups: [group(), group()] });
+  const idle = TestBucketSchema.parse({ id: randomUUID(), name: 'idle', createdAt: now, updatedAt: now, actionGroups: [group()] });
+  const adapter = getStorageAdapter();
+  const older = pastRun(10, { createdAt: '2026-01-01T00:00:00.000Z' });
+  const newer = pastRun(20, { createdAt: '2026-02-01T00:00:00.000Z' });
+  for (const [run, g] of [[older, ran.actionGroups[0]!], [newer, ran.actionGroups[1]!]] as const) {
+    await adapter.set(`run:${run.id}`, JSON.stringify(run));
+    await adapter.zadd(`group:${g.id}:runs`, Date.parse(run.createdAt), run.id);
+  }
+
+  const latest = await getLatestRunsByBucket([ran, idle]);
+  assert.equal(latest[ran.id]?.id, newer.id);
+  assert.equal(idle.id in latest, false);
+});
+
+test('describeRequestError: says why a request got no response, not just "fetch failed"', () => {
+  const failed = (code: string, message: string) =>
+    new TypeError('fetch failed', { cause: Object.assign(new Error(message), { code }) });
+
+  const tls = describeRequestError(failed('SELF_SIGNED_CERT_IN_CHAIN', 'self-signed certificate in certificate chain'));
+  assert.match(tls, /^HTTPS certificate not trusted \(SELF_SIGNED_CERT_IN_CHAIN\)/);
+  assert.match(tls, /NODE_EXTRA_CA_CERTS/);
+  assert.match(describeRequestError(failed('ENOTFOUND', 'getaddrinfo ENOTFOUND nope.invalid')), /^Could not resolve the host/);
+  assert.match(describeRequestError(failed('ECONNREFUSED', 'connect ECONNREFUSED')), /^Connection refused/);
+  assert.equal(describeRequestError(failed('EPIPE', 'write EPIPE')), 'write EPIPE (EPIPE)');
+  assert.equal(describeRequestError(Object.assign(new Error('x'), { name: 'TimeoutError' })), 'The request timed out');
+  assert.equal(describeRequestError(new Error('Invalid URL')), 'Invalid URL');
+  assert.equal(describeRequestError('?'), 'Unknown network or execution error');
 });

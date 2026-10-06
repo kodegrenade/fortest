@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { useBucketStore } from '@/stores/bucketStore';
 import {
   BucketIcon,
@@ -7,7 +7,6 @@ import {
   TrashIcon,
   InboxIcon,
   SaveIcon,
-  XIcon,
   GridIcon,
   ListIcon,
   PlayIcon,
@@ -16,11 +15,13 @@ import { PromptDialog } from '@/components/common/PromptDialog';
 import { ConfirmDialog } from '@/components/common/ConfirmDialog';
 import { useToastStore } from '@/stores/toastStore';
 import { useExecutionStore } from '@/stores/executionStore';
-import type { TestBucket } from '@fortest/types';
+import type { RunSummary, TestBucket } from '@fortest/types';
 import { Modal } from '@/components/common/Modal';
 // Also checked by the API tests, so they always import cleanly.
 import JSON_TEMPLATE from '@/templates/fortest-template.json?raw';
 import YAML_TEMPLATE from '@/templates/fortest-template.yaml?raw';
+import { displayBaseUrl } from '@/utils/variableParser';
+import { relativeTime, runTone, runVerdict, toneBadge, VERDICT_LABEL } from '@/utils/results';
 import '../buckets/Buckets.css';
 
 export function DashboardHub() {
@@ -38,6 +39,10 @@ export function DashboardHub() {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [isFabOpen, setIsFabOpen] = useState(false);
+  const fabRef = useRef<HTMLDivElement>(null);
+  const [latestRuns, setLatestRuns] = useState<Record<string, RunSummary>>({});
+  // Changes whenever a background run finishes, so the hub's "last run" refreshes.
+  const finishedJobs = useExecutionStore((s) => s.backgroundJobs.filter((j) => j.status !== 'running').length);
   const [dialogState, setDialogState] = useState<{
     type: 'createBucket' | 'renameBucket' | 'deleteBucket' | 'exportBucket' | 'importBucket' | 'runSelector' | null;
     bucketId?: string;
@@ -59,6 +64,61 @@ export function DashboardHub() {
     setViewMode(mode);
     localStorage.setItem('dashboard-view', mode);
   };
+
+  useEffect(() => {
+    fetch('/api/runs/latest')
+      .then((res) => (res.ok ? res.json() : {}))
+      .then(setLatestRuns)
+      .catch(() => {}); // the hub works without it; the column just stays empty
+  }, [buckets.length, finishedJobs]);
+
+  // Open menu: focus its first option; Escape or a click elsewhere closes it.
+  useEffect(() => {
+    if (!isFabOpen) return;
+    fabRef.current?.querySelector<HTMLButtonElement>('.dashboard-hub__fab-option')?.focus();
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      setIsFabOpen(false);
+      fabRef.current?.querySelector<HTMLButtonElement>('.dashboard-hub__fab-trigger')?.focus();
+    };
+    const onPointer = (e: PointerEvent) => {
+      if (!fabRef.current?.contains(e.target as Node)) setIsFabOpen(false);
+    };
+    document.addEventListener('keydown', onKey);
+    document.addEventListener('pointerdown', onPointer);
+    return () => {
+      document.removeEventListener('keydown', onKey);
+      document.removeEventListener('pointerdown', onPointer);
+    };
+  }, [isFabOpen]);
+
+  // Shortcuts on the hub: N creates a bucket, I imports one (not while typing or in a dialog).
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.metaKey || e.ctrlKey || e.altKey || dialogState.type) return;
+      const target = e.target as HTMLElement;
+      if (target.closest('input, textarea, select, [contenteditable="true"], dialog')) return;
+      const type = e.key === 'n' ? 'createBucket' : e.key === 'i' ? 'importBucket' : null;
+      if (!type) return;
+      e.preventDefault();
+      setIsFabOpen(false);
+      setDialogState({ type });
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [dialogState.type]);
+
+  // Cards and rows open on Enter/Space too (only when they, not a button inside, have focus).
+  const openOnKey = (bucketId: string) => (e: React.KeyboardEvent) => {
+    if (e.target === e.currentTarget && (e.key === 'Enter' || e.key === ' ')) {
+      e.preventDefault();
+      setActiveBucket(bucketId);
+    }
+  };
+
+  // List view: most recently run first; buckets never run keep their order after them.
+  const lastRunAt = (bucket: TestBucket) => latestRuns[bucket.id]?.createdAt ?? '';
+  const bucketsByLastRun = [...buckets].sort((a, b) => lastRunAt(b).localeCompare(lastRunAt(a)));
 
   const validateAndSetFile = (file: File) => {
     const ext = file.name.split('.').pop()?.toLowerCase();
@@ -191,9 +251,9 @@ export function DashboardHub() {
       <div className="dashboard-hub__header">
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-            <h1 className="dashboard-hub__title">API Test Orchestration Hub</h1>
+            <h1 className="dashboard-hub__title">Buckets</h1>
             <p className="dashboard-hub__subtitle">
-              Configure test buckets, chain HTTP requests in action flows, and watch performance metrics run in real-time.
+              One bucket per API: its base URL, auth and variables, and the action groups that test it.
             </p>
           </div>
           
@@ -203,6 +263,7 @@ export function DashboardHub() {
                 type="button"
                 className={`dashboard-hub__view-btn ${viewMode === 'grid' ? 'dashboard-hub__view-btn--active' : ''}`}
                 onClick={() => handleToggleView('grid')}
+                aria-pressed={viewMode === 'grid'}
                 title="Grid View"
                 aria-label="Grid View"
               >
@@ -212,6 +273,7 @@ export function DashboardHub() {
                 type="button"
                 className={`dashboard-hub__view-btn ${viewMode === 'list' ? 'dashboard-hub__view-btn--active' : ''}`}
                 onClick={() => handleToggleView('list')}
+                aria-pressed={viewMode === 'list'}
                 title="List View"
                 aria-label="List View"
               >
@@ -232,7 +294,15 @@ export function DashboardHub() {
         <div className="dashboard-hub__empty-state">
           <BucketIcon size={48} style={{ color: 'var(--text-tertiary)', marginBottom: '16px' }} />
           <h3>No Test Buckets Found</h3>
-          <p>Click the floating action button in the bottom right corner to create or import a test bucket and begin configuration.</p>
+          <p>Create a bucket for the API you want to test, or import a Fortest file or Postman collection.</p>
+          <div style={{ display: 'flex', gap: '8px', marginTop: '16px' }}>
+            <button type="button" className="btn btn--primary" onClick={() => setDialogState({ type: 'createBucket' })}>
+              <PlusIcon size={14} /> Create Bucket
+            </button>
+            <button type="button" className="btn btn--secondary" onClick={() => setDialogState({ type: 'importBucket' })}>
+              <InboxIcon size={14} /> Import
+            </button>
+          </div>
         </div>
       ) : viewMode === 'grid' ? (
         <div className="dashboard-hub__grid">
@@ -245,13 +315,17 @@ export function DashboardHub() {
             <div
               key={bucket.id}
               className="bucket-card"
+              role="button"
+              tabIndex={0}
+              aria-label={`Open ${bucket.name}`}
               onClick={() => setActiveBucket(bucket.id)}
+              onKeyDown={openOnKey(bucket.id)}
             >
               <div className="bucket-card__header">
                 <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0, flex: 1 }}>
                   <span className="bucket-card__title">{bucket.name}</span>
                   {bucket.baseUrl ? (
-                    <span className="bucket-card__url">{bucket.baseUrl}</span>
+                    <span className="bucket-card__url" title={bucket.baseUrl}>{displayBaseUrl(bucket)}</span>
                   ) : (
                     <span style={{ fontSize: '11px', color: 'var(--text-tertiary)', marginTop: '4px', fontStyle: 'italic' }}>
                       No base URL configured
@@ -279,23 +353,29 @@ export function DashboardHub() {
       </div>
       ) : (
         <div className="dashboard-hub__list">
-        {/* Bucket List Items (List) */}
-        {buckets.map((bucket) => {
+        {/* Bucket List Items (List): the dense view, most recently run first */}
+        {bucketsByLastRun.map((bucket) => {
           const groupCount = bucket.actionGroups?.length || 0;
           const totalSteps = bucket.actionGroups?.reduce((acc, curr) => acc + (curr.steps?.length || 0), 0) || 0;
+          const lastRun = latestRuns[bucket.id];
+          const verdict = lastRun && runVerdict(lastRun);
 
           return (
             <div
               key={bucket.id}
               className="bucket-list-item"
+              role="button"
+              tabIndex={0}
+              aria-label={`Open ${bucket.name}`}
               onClick={() => setActiveBucket(bucket.id)}
+              onKeyDown={openOnKey(bucket.id)}
             >
               <div className="bucket-list-item__left">
                 <BucketIcon size={20} style={{ color: 'var(--accent-primary)', flexShrink: 0 }} />
                 <div className="bucket-list-item__title-group">
                   <span className="bucket-list-item__title">{bucket.name}</span>
                   {bucket.baseUrl ? (
-                    <span className="bucket-list-item__url">{bucket.baseUrl}</span>
+                    <span className="bucket-list-item__url" title={bucket.baseUrl}>{displayBaseUrl(bucket)}</span>
                   ) : (
                     <span className="bucket-list-item__url-empty">No base URL configured</span>
                   )}
@@ -303,6 +383,21 @@ export function DashboardHub() {
               </div>
 
               <div className="bucket-list-item__right">
+                <div className="bucket-list-item__last-run">
+                  {lastRun && verdict ? (
+                    <>
+                      <span className="bucket-list-item__verdict" style={toneBadge(runTone(verdict), 12)}>
+                        {VERDICT_LABEL[verdict]}
+                      </span>
+                      <span title={`${lastRun.actionGroupName}${lastRun.environmentName ? ` · env: ${lastRun.environmentName}` : ''}`}>
+                        {relativeTime(lastRun.createdAt)}
+                        {lastRun.environmentName && <span className="bucket-list-item__env"> · {lastRun.environmentName}</span>}
+                      </span>
+                    </>
+                  ) : (
+                    <span>Never run</span>
+                  )}
+                </div>
                 <div className="bucket-list-item__meta">
                   <span className="bucket-list-item__badge">
                     {groupCount} {groupCount === 1 ? 'Group' : 'Groups'}
@@ -329,60 +424,47 @@ export function DashboardHub() {
         style={{ display: 'none' }}
       />
 
-      {/* Floating Action Button (FAB) Dial Menu */}
-      {isFabOpen && (
-        <div
-          className="dashboard-hub__fab-overlay"
-          onClick={() => setIsFabOpen(false)}
-          style={{
-            position: 'fixed',
-            top: 0,
-            left: 0,
-            right: 0,
-            bottom: 0,
-            zIndex: 999,
-            backgroundColor: 'transparent',
-          }}
-        />
-      )}
-
-      <div className={`dashboard-hub__fab-container ${isFabOpen ? 'dashboard-hub__fab-container--open' : ''}`}>
-        {/* Option: Create Bucket */}
+      {/* Floating Action Button (FAB) Speed Dial */}
+      <div ref={fabRef} className={`dashboard-hub__fab-container ${isFabOpen ? 'dashboard-hub__fab-container--open' : ''}`}>
         <button
+          type="button"
           className="dashboard-hub__fab-option dashboard-hub__fab-option--create"
           onClick={() => {
             setIsFabOpen(false);
             setDialogState({ type: 'createBucket' });
           }}
-          title="Create Bucket"
-          aria-label="Create Bucket"
+          aria-label="Create Bucket (N)"
         >
           <PlusIcon size={20} />
-          <span className="dashboard-hub__fab-label">Create Bucket</span>
+          <span className="dashboard-hub__fab-label" aria-hidden="true">
+            Create Bucket <kbd>N</kbd>
+          </span>
         </button>
 
-        {/* Option: Import Bucket */}
         <button
+          type="button"
           className="dashboard-hub__fab-option dashboard-hub__fab-option--import"
           onClick={() => {
             setIsFabOpen(false);
             setDialogState({ type: 'importBucket' });
           }}
-          title="Import Bucket"
-          aria-label="Import Bucket"
+          aria-label="Import Bucket (I)"
         >
           <InboxIcon size={20} />
-          <span className="dashboard-hub__fab-label">Import Bucket</span>
+          <span className="dashboard-hub__fab-label" aria-hidden="true">
+            Import Bucket <kbd>I</kbd>
+          </span>
         </button>
 
-        {/* Main Trigger Button */}
         <button
+          type="button"
           className={`dashboard-hub__fab-trigger ${isFabOpen ? 'dashboard-hub__fab-trigger--open' : ''}`}
           onClick={() => setIsFabOpen(!isFabOpen)}
-          title={isFabOpen ? 'Close Menu' : 'Add or Import Bucket'}
-          aria-label={isFabOpen ? 'Close Menu' : 'Add or Import Bucket'}
+          title={isFabOpen ? 'Close menu' : 'Create or import a bucket'}
+          aria-label={isFabOpen ? 'Close menu' : 'Create or import a bucket'}
+          aria-expanded={isFabOpen}
         >
-          {isFabOpen ? <XIcon size={24} /> : <BucketIcon size={24} />}
+          <PlusIcon size={24} />
         </button>
       </div>
 
@@ -529,7 +611,6 @@ export function DashboardHub() {
                   className="btn btn--primary"
                   onClick={handleImportSubmit}
                   disabled={!selectedFile || isImporting}
-                  style={{ display: 'flex', alignItems: 'center', gap: '8px' }}
                 >
                   {isImporting ? (
                     <>
@@ -570,7 +651,7 @@ export function DashboardHub() {
 
               <a
                 className="btn btn--secondary"
-                style={{ width: '100%', marginTop: '16px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}
+                style={{ width: '100%', marginTop: '16px', justifyContent: 'center' }}
                 href={`data:text/plain;charset=utf-8,${encodeURIComponent(template)}`}
                 download={`fortest-template.${templateTab}`}
                 onClick={() => addToast(`Template fortest-template.${templateTab} downloaded successfully`, 'success')}

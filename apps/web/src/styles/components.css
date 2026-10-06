@@ -23,6 +23,7 @@
   display: flex;
   align-items: center;
   gap: 8px;
+  min-width: 0;
 }
 
 .toolbar__logo-icon {
@@ -42,6 +43,30 @@
   background-clip: text;
   -webkit-text-fill-color: transparent;
   letter-spacing: -0.01em;
+}
+
+.toolbar__bucket-context {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+  margin-left: 4px;
+}
+
+.toolbar__bucket-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+  white-space: nowrap;
+}
+
+.toolbar__bucket-url {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .toolbar__controls {
@@ -120,6 +145,101 @@
 
 .main-content--sidebar-collapsed {
   left: 48px;
+}
+
+/* Narrow screens: the content keeps the collapsed rail's width and the open sidebar overlays it. */
+.sidebar-backdrop {
+  display: none;
+}
+
+@media (max-width: 900px) {
+  .main-content {
+    left: 48px;
+  }
+
+  .sidebar:not(.sidebar--collapsed) {
+    box-shadow: var(--shadow-lg);
+  }
+
+  .sidebar-backdrop {
+    display: block;
+    position: fixed;
+    inset: var(--toolbar-height) 0 0 0;
+    z-index: 89;
+    background-color: hsla(0, 0%, 0%, 0.3);
+  }
+}
+
+/* Phones: the bucket is already named in the sidebar. */
+@media (max-width: 600px) {
+  .toolbar__bucket-context {
+    display: none !important;
+  }
+}
+
+/* --- Switch: a native checkbox (role="switch") drawn as a toggle; the whole label is clickable --- */
+.switch {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  cursor: pointer;
+}
+
+.switch input {
+  appearance: none;
+  position: relative;
+  flex-shrink: 0;
+  width: 36px;
+  height: 20px;
+  margin: 0;
+  border-radius: 20px;
+  border: 1px solid var(--border-primary);
+  background-color: var(--bg-hover);
+  cursor: pointer;
+  transition: background-color var(--transition-fast);
+}
+
+.switch input::after {
+  content: '';
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background-color: var(--text-secondary);
+  transition: transform var(--transition-fast), background-color var(--transition-fast);
+}
+
+.switch input:checked {
+  background-color: var(--accent-primary);
+}
+
+.switch input:checked::after {
+  transform: translateX(16px);
+  background-color: #ffffff;
+}
+
+.switch input:focus-visible {
+  outline: 2px solid var(--accent-primary);
+  outline-offset: 2px;
+}
+
+/* --- Run history: the whole row opens the run --- */
+.history-row {
+  border-bottom: 1px solid var(--border-secondary);
+  cursor: pointer;
+  transition: background-color var(--transition-fast);
+}
+
+.history-row:hover {
+  background-color: var(--bg-hover);
+}
+
+.history-row:focus-visible {
+  outline: 2px solid var(--accent-primary);
+  outline-offset: -2px;
 }
 
 /* --- Empty State --- */
@@ -204,6 +324,36 @@
 .btn--icon:hover {
   background-color: var(--bg-hover);
   color: var(--text-primary);
+}
+
+.btn--secondary {
+  background-color: var(--bg-tertiary);
+  border: 1px solid var(--border-primary);
+  color: var(--text-primary);
+}
+
+.btn--secondary:hover {
+  background-color: var(--bg-hover);
+}
+
+.btn--sm {
+  padding: 4px 10px;
+  font-size: 12px;
+}
+
+.btn--xs {
+  padding: 3px 8px;
+  font-size: 11px;
+}
+
+.btn--danger,
+.btn--danger:hover {
+  color: var(--status-5xx);
+}
+
+.btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
 }
 
 /* --- Input --- */

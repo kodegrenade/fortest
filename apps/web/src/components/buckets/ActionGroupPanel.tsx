@@ -251,7 +251,7 @@ export function ActionGroupPanel() {
             <button
               className="btn btn--primary"
               title="Run Action Group"
-              style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '6px 14px', fontSize: '12.5px', fontWeight: 600 }}
+              style={{ fontWeight: 600 }}
               onClick={() => setIsRunConfigOpen(true)}
             >
               <PlayIcon size={14} /> Run Flow
@@ -307,11 +307,8 @@ export function ActionGroupPanel() {
                       <div className="step-node__dot">{index + 1}</div>
                       <div className="step-node__card">
                         <div className="step-node__info">
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                            <span className={methodClass} style={methodStyle}>
-                              {step.method}
-                            </span>
-                            <span className="step-node__name">{step.name}</span>
+                          <div style={{ display: 'flex', alignItems: 'flex-start', gap: '8px' }}>
+                            <span className="step-node__name" title={step.name}>{step.name}</span>
                             {step.retry && (
                               <span
                                 className="badge"
@@ -322,7 +319,12 @@ export function ActionGroupPanel() {
                               </span>
                             )}
                           </div>
-                          <span className="step-node__path">{step.path}</span>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', minWidth: 0 }}>
+                            <span className={methodClass} style={methodStyle}>
+                              {step.method}
+                            </span>
+                            <span className="step-node__path" title={step.path}>{step.path}</span>
+                          </div>
                         </div>
 
                         <div className="step-node__actions" onClick={(e) => e.stopPropagation()}>
@@ -356,7 +358,6 @@ export function ActionGroupPanel() {
                     <button
                       className="btn btn--primary"
                       onClick={() => setDialogState({ type: 'createStep' })}
-                      style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '6px 12px' }}
                     >
                       <PlusIcon size={14} /> Add First Step
                     </button>

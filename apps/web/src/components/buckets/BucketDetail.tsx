@@ -211,16 +211,14 @@ export function BucketDetail() {
                 <div style={{ display: 'flex', gap: '8px' }}>
                   <button
                     type="button"
-                    className="btn btn--ghost"
-                    style={{ fontSize: '11px', padding: '4px 8px', display: 'flex', alignItems: 'center', gap: '4px' }}
+                    className="btn btn--ghost btn--xs"
                     onClick={() => setDialogState({ type: 'pasteVariables' })}
                   >
                     <ClipboardIcon size={12} /> Bulk Paste
                   </button>
                   <button
                     type="button"
-                    className="btn btn--ghost"
-                    style={{ fontSize: '11px', padding: '4px 8px', display: 'flex', alignItems: 'center', gap: '4px' }}
+                    className="btn btn--ghost btn--xs"
                     onClick={handleAddVariable}
                   >
                     <PlusIcon size={12} /> Add Variable
@@ -250,8 +248,7 @@ export function BucketDetail() {
                 ))}
                 <button
                   type="button"
-                  className="btn btn--ghost"
-                  style={{ fontSize: '12px', padding: '4px 10px', display: 'flex', alignItems: 'center', gap: '4px' }}
+                  className="btn btn--ghost btn--sm"
                   onClick={() => setDialogState({ type: 'newEnvironment' })}
                 >
                   <PlusIcon size={12} /> Environment
@@ -273,8 +270,7 @@ export function BucketDetail() {
                   </span>
                   <button
                     type="button"
-                    className="btn btn--ghost"
-                    style={{ fontSize: '11px', padding: '4px 8px', color: 'var(--method-delete)' }}
+                    className="btn btn--ghost btn--xs btn--danger"
                     onClick={() => {
                       setEnvironments(environments.filter((e) => e.id !== scopedEnv.id));
                       setScope('shared');
@@ -384,7 +380,6 @@ export function BucketDetail() {
           <h2 style={{ fontSize: '16px', fontWeight: 600, color: 'var(--text-primary)' }}>Action Groups</h2>
           <button
             className="btn btn--primary"
-            style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
             onClick={() => setDialogState({ type: 'createGroup' })}
           >
             <PlusIcon size={14} /> Create Action Group

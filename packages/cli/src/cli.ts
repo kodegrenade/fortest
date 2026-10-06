@@ -21,6 +21,7 @@ import {
   prepareImport,
   resolveConfig,
   type ExecuteOutcome,
+  trustSystemCertificates,
 } from '@fortest/engine';
 
 // Read at runtime from source, inlined when bundled: either way the published version.
@@ -297,7 +298,7 @@ async function run(args: string[]): Promise<number> {
           const ok = !isFailedResult(r);
           const status = r.status ? String(r.status) : '---';
           console.log(
-            `  ${ok ? green('✓') : red('✗')} ${r.stepName}  ${dim(`${r.method} ${status} ${r.responseTime}ms${r.attempts ? ` (${r.attempts} attempts)` : ''}`)}`,
+            `  ${ok ? green('✓') : red('✗')} ${r.stepName}  ${dim(`${r.method} ${status} ${r.responseTime}ms${r.attempts ? ` (${r.attempts} attempt${r.attempts === 1 ? '' : 's'})` : ''}`)}`,
           );
           if (!ok) for (const reason of failureReasons(r)) console.log(`      ${red(reason)}`);
         },
@@ -321,7 +322,7 @@ async function run(args: string[]): Promise<number> {
       const unreached = group.steps.length - new Set(results.map((r) => r.stepId)).size;
       console.log(
         `  ${failed ? red(`${failed} failed`) : green('all passed')}` +
-          dim(` · ${totalRequests} requests · avg ${Math.round(avgLatency)}ms · p95 ${p95}ms`) +
+          dim(` · ${totalRequests} request${totalRequests === 1 ? '' : 's'} · avg ${Math.round(avgLatency)}ms · p95 ${p95}ms`) +
           (unreached > 0 ? yellow(` · ${unreached} step(s) not reached`) : ''),
       );
       if (maxP95 !== undefined && p95 > maxP95) {
@@ -380,7 +381,10 @@ export async function main(argv: string[], { serve, cwd }: CliOptions = {}): Pro
     await serve();
     return -1;
   }
-  if (command === 'run') return run(args);
+  if (command === 'run') {
+    trustSystemCertificates(); // HTTPS behind proxies whose root is only in the OS store
+    return run(args);
+  }
   console.log(usage(!!serve));
   return command === undefined || command === '-h' || command === '--help' ? 0 : 2;
 }
