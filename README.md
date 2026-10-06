@@ -25,7 +25,7 @@ Fortest supports a variety of comparison operators (e.g., `equals`, `contains`, 
 Configure concurrent runs to stress-test your backend or simulate multi-user behavior:
 - **Concurrency & Iterations**: Run multiple parallel execution workers using a built-in concurrent pool.
 - **Isolated Contexts**: Each worker run operates in an isolated environment variables namespace so parallel requests do not overwrite each other's extracted variables.
-- **Data-Driven Inputs**: Upload JSON or CSV data sets directly to the Action Group's data store to map records to test variables, enabling parameterized testing (e.g., running 100 concurrent requests with different test user credentials). JSON must be an array of objects; CSV needs a header row, whose column names become the variable names (standard quoting is supported, so values may contain commas, quotes or line breaks).
+- **Data-Driven Inputs**: Upload JSON or CSV data sets directly to the Action Group's data store to map records to test variables, enabling parameterized testing (e.g., running 100 concurrent requests with different test user credentials). JSON must be an array of objects; CSV needs a header row, whose column names become the variable names (standard quoting is supported, so values may contain commas, quotes or line breaks). In the run dialog, turning the data store on sets the iteration count to one per record, and a note warns when fewer iterations than records means some records won't run.
 
 ### 5. Stream Real-Time Execution Metrics
 Observe tests in real time via active WebSocket pipelines:
@@ -33,6 +33,9 @@ Observe tests in real time via active WebSocket pipelines:
 - View real-time assertion checks and dynamic extraction outputs.
 - Receive OS-level push notifications once long-running suites or load tests finish executing in the background.
 - Stop a run at any time; opening a run that is still in progress (or reconnecting) catches up on everything that already happened.
+- A finished run opens on its first failing step (on the **Assertions** tab when an assertion failed), and its header says what happened in one line, e.g. "1 of 4 steps failed".
+- A run counts as **Failed** when any request in it failed (network error, HTTP 4xx/5xx or a failed assertion), even though it ran to the end. Success rates are rounded down, so 100% always means no failures.
+- Large load runs list failed and running iterations first and show 100 iterations at a time, with a button to show more.
 
 ### 6. Track Latency Trends and Analytics
 Analyze historical performance runs to catch regressions:
@@ -40,10 +43,11 @@ Analyze historical performance runs to catch regressions:
 - Review automatically generated latency analytics (minimum, maximum, average) and response percentiles (`p50`, `p95`, `p99`).
 - Interactive SVG trend lines map latencies chronologically across test runs.
 - **Slower-than-usual runs are flagged**: when a run's p95 is more than 50% *and* at least 50 ms above the median p95 of the group's last 10 comparable runs (completed, same environment, same run type: single vs load), the run dashboard and history show a ⚠ badge (e.g. "p95 742ms vs usual 310ms (+139%)") and a warning toast appears. A group needs 3 comparable runs before it's judged.
+- The bucket list's **list view** shows each bucket's last run (result, how long ago, environment), most recently run first.
 - **In CI**, where there's no run history, set a latency budget instead: `fortest run … --max-p95 500` fails any action group whose p95 is over 500 ms (per-step limits are `response_time` assertions).
 
 ### 7. Export, Import, and Share Test Suites
-Collaborate on test suites by exporting entire buckets (including environment variables, action groups, steps, assertions, and data stores) as JSON or YAML files. Importing files automatically regenerates unique identifiers to prevent collisions with existing workspaces. You can also import existing **Postman Collections (v2.0 & v2.1)** directly to instantly bootstrap your test buckets, mapping folders, requests, variables, and auth configurations into Fortest schemas.
+Collaborate on test suites by exporting entire buckets (including environment variables, action groups, steps, assertions, and data stores) as JSON or YAML files. Importing files automatically regenerates unique identifiers to prevent collisions with existing workspaces. You can also import existing **Postman Collections (v2.0 & v2.1)** directly to instantly bootstrap your test buckets, mapping folders, requests, variables, and auth configurations into Fortest schemas. On the bucket list, the **+** button (or the **N** and **I** keys) creates or imports a bucket.
 
 ### 8. Run Your Flows in CI
 Export a bucket and run it with the `fortest` CLI: it exits non-zero when anything fails and can write a JUnit report, so API flow tests can gate a pipeline. See [Running Tests from the Command Line and CI](#running-tests-from-the-command-line-and-ci).
@@ -135,7 +139,7 @@ The `dataStore` object contains records for data-driven testing:
   ]
 }
 ```
-During multi-iteration or load tests, Fortest will automatically feed each concurrent iteration with the corresponding record, allowing you to use `{{testUser}}` in your steps.
+When a run uses the data store, iteration 1 gets the first record, iteration 2 the second, and so on, so `{{testUser}}` differs per iteration. With more iterations than records the records repeat from the start; with fewer, the remaining records are not used. In the app, turning the data store on in the run dialog sets the iterations to one per record.
 
 ---
 
@@ -164,9 +168,10 @@ Headers and params use key-value schemas:
 ```
 
 #### How to use the `body` tag:
-Supports multiple formats:
+`type` is one of `none`, `json`, `xml`, `form-data`, `x-www-form-urlencoded` or `raw`:
 - **JSON**: `{ "type": "json", "content": "{\"email\":\"{{email}}\"}" }`
-- **Form Data / URL Encoded**: `{ "type": "form-data", "content": "key1=val1&key2=val2" }` (or standard raw content formats).
+- **Form Data / URL Encoded**: `content` is a JSON list of fields, which is what Export writes: `{ "type": "x-www-form-urlencoded", "content": "[{\"key\":\"sku\",\"value\":\"A-1\",\"enabled\":true}]" }`. A plain query string (`"sku=A-1&qty=2"`) is accepted too in hand-written files.
+- **XML / Raw**: `content` is sent as-is.
 
 ---
 
@@ -204,7 +209,7 @@ Assertion criteria that must pass for the step (and run) to be marked as success
 | Property | Type | Required / Optional | Description |
 | :--- | :--- | :--- | :--- |
 | `target` | String | **Required** | Target parameter (`"status"`, `"body"`, `"header"`, `"response_time"`). |
-| `operator` | String | **Required** | Operator (`"equals"`, `"not_equals"`, `"contains"`, `"greater_than"`, `"less_than"`, `"exists"`, `"matches_regex"`). |
+| `operator` | String | **Required** | Operator (`"equals"`, `"not_equals"`, `"contains"`, `"not_contains"`, `"greater_than"`, `"less_than"`, `"exists"`, `"not_exists"`, `"matches_regex"`). |
 | `expected` | String | **Required** | The expected value. Autocomplete-enabled (can use `{{variables}}`). |
 | `selector` | String | Optional | The dot-notation path (required if target is `"body"` or `"header"`). Default: `""`. |
 
@@ -398,7 +403,7 @@ There is no authentication. Do not expose Fortest on a public or shared network.
 Each run is stored as a small summary (status, configuration, metrics) plus a list that every step result is appended to as it finishes, so long runs never rewrite what they've already stored.
 - **History cap**: Fortest keeps the **50 most recent runs** per Action Group; older runs and their results are deleted automatically.
 - **Response bodies**: single runs keep every request and response body. Multi-iteration (load) runs keep bodies only for **iteration 1 and for failed steps**; other results keep status, timing, headers, assertions and extractions. Stored bodies are capped at 1 MB each.
-- **Stopping a run**: the **Stop** button (run dashboard or the Runs dropdown) cancels the run between steps; it is saved with status `cancelled` and its partial results. API: `POST /api/runs/:id/cancel`.
+- **Stopping a run**: the **Stop** button (on the run dashboard, or in the toolbar's **Runs History** menu) cancels the run between steps; it is saved with status `cancelled` and its partial results. API: `POST /api/runs/:id/cancel`.
 - **Restarts**: runs that were in progress when the server stopped are marked `failed` ("Interrupted") on the next start.
 
 ### 4. Space-Safe Timeline Identifiers
@@ -406,6 +411,19 @@ Action Group step names can safely contain spaces:
 - **Example**: If a step is named `Create Account`, you can reference its extracted ID in downstream headers as `{{steps.Create Account.newUserId}}`. 
 - **Constraint**: Step names must be unique within an Action Group (the editor enforces this).
 - **Renaming**: renaming a step in the editor updates every `{{steps.<old name>.…}}` reference in the group's other steps, and tells you how many it changed. References in hand-edited bucket files are not rewritten.
+
+### 5. HTTPS Behind Corporate Proxies
+Some networks inspect HTTPS through a proxy (Netskope, Zscaler, ...) that re-signs every site's certificate with the company's own root certificate. Browsers and `curl` trust it because it's installed in the operating system, but Node.js uses its own certificate list, so requests fail with `HTTPS certificate not trusted (SELF_SIGNED_CERT_IN_CHAIN)`.
+- **Server and CLI**: on Node.js 22.19+ / 24.5+, Fortest also trusts the operating system's certificates, so this works with no setup. On older Node versions, point `NODE_EXTRA_CA_CERTS` at the proxy's root certificate (e.g. `NODE_EXTRA_CA_CERTS=/usr/local/share/ca-certificates/company-root.crt`).
+- **Docker**: the image has its own certificate store, so mount the root certificate and point `NODE_EXTRA_CA_CERTS` at it. With Docker Desktop, copy the certificate into a folder it shares (your home directory is shared by default); a path it can't see, such as `/usr/local/share`, is silently mounted as an empty directory.
+  ```bash
+  cp /usr/local/share/ca-certificates/company-root.crt ~/company-root.crt
+  docker run -p 127.0.0.1:3001:3001 \
+    -v ~/company-root.crt:/certs/company-root.crt:ro \
+    -e NODE_EXTRA_CA_CERTS=/certs/company-root.crt \
+    ghcr.io/kodegrenade/fortest
+  ```
+- A step that gets no response shows the reason (certificate, DNS, refused connection, timeout) in its result.
 
 ---
 
@@ -439,7 +457,7 @@ Run the entire application stack instantly. This option packages both the backen
 
 ### Method 2: Running Locally (For Development)
 
-Use this method if you are making code changes and need hot-reloading (HMR) to reflect immediately.
+Use this method if you are making code changes and need hot-reloading (HMR) to reflect immediately. Requires Node.js 20.3+ and pnpm; use Node.js 22.19+ or 24.5+ if your network inspects HTTPS (see [HTTPS Behind Corporate Proxies](#5-https-behind-corporate-proxies)).
 
 1. **Spin up the database dependency (Docker)**:
    ```bash
