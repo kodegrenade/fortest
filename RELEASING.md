@@ -8,22 +8,26 @@ One version number covers everything built from this repository:
 | App + CLI Docker image | `ghcr.io/kodegrenade/fortest` | `Dockerfile` |
 | Changelog and GitHub Release | this repository | commit messages |
 
-Releases are built and published only by the **Release** workflow (`.github/workflows/release.yml`).
-npm accepts publishes from that workflow in this repository (trusted publishing), and every
-version carries [provenance](https://docs.npmjs.com/generating-provenance-statements) linking it
-to the commit and workflow run that built it.
+Releases are built only by the **Release** workflow (`.github/workflows/release.yml`). npm trusts
+that workflow in this repository (trusted publishing, no stored token) to **stage** versions only:
+a staged version is invisible to installs until a maintainer approves it with 2FA
+([staged publishing](https://docs.npmjs.com/cli/v11/commands/npm-stage)). Every version carries
+[provenance](https://docs.npmjs.com/generating-provenance-statements) linking it to the commit and
+workflow run that built it.
 
 ## How a release happens
 
 1. Commits land on `main` with [conventional commit](https://www.conventionalcommits.org/) prefixes. They decide the version bump (see below) and become the release notes, so write them for users.
 2. The Release workflow keeps a pull request titled `chore(main): release X.Y.Z` up to date: version bumps in `package.json` and `packages/cli/package.json`, plus `CHANGELOG.md`.
-3. **Merging that PR is the decision to ship.** The workflow then:
+3. **Merging that PR starts the release.** The workflow then:
    - tags `vX.Y.Z` and creates the GitHub Release;
    - runs typecheck and tests, builds the CLI bundle, installs the packed tarball into an empty project and runs it;
-   - publishes to npm;
-   - builds the image for linux/amd64 and linux/arm64 and pushes `X.Y.Z`, `X.Y`, `X` and `latest` (only after the npm job passed).
+   - **stages** the version on npm (`npm stage publish`); the run's summary shows the approval commands;
+   - builds the image for linux/amd64 and linux/arm64 and pushes `X.Y.Z`, `X.Y`, `X` and `latest` to ghcr.io, after the `release` environment's reviewer approves (if one is configured).
+4. **A maintainer approves the npm version** (npm 11.15+, with 2FA): `npm stage list @codegrenade/fortest-cli`, then `npm stage approve <stage-id>`. Only then is it installable.
 
-Re-running a failed release is safe: a version already on npm is skipped.
+If the npm or Docker part fails, fix the cause and use **Actions → Release → Run workflow** with the
+existing tag (for example `v0.2.0`): it redoes only those two jobs. A version already on npm is skipped.
 
 ## Versioning
 
