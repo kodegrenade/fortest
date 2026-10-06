@@ -3,7 +3,7 @@ import { z } from 'zod';
 import * as yaml from 'yaml';
 import { TestBucketSchema, type ApiError } from '@fortest/types';
 import * as bucketService from '../services/bucketService';
-import { isPostmanCollection, convertPostmanCollection } from '../services/postmanConverter';
+import { convertPostmanCollection, isPostmanCollection, prepareImport, toExportFile } from '@fortest/engine';
 
 // Express 5 forwards rejected promises to the error handler (ZodError -> 400), so no try/catch here.
 const router: ExpressRouter = Router();
@@ -55,7 +55,7 @@ router.get('/:id/export', async (req, res) => {
   const filename = `${bucket.name.toLowerCase().replace(/[^a-z0-9]+/g, '-')}-export.${isYaml ? 'yaml' : 'json'}`;
   res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
   res.setHeader('Content-Type', isYaml ? 'application/yaml' : 'application/json');
-  const exported = bucketService.withoutSecretValues(bucket);
+  const exported = toExportFile(bucket);
   res.send(isYaml ? yaml.stringify(exported) : JSON.stringify(exported, null, 2));
 });
 
@@ -84,7 +84,7 @@ router.post('/import', async (req, res) => {
 
   // --- Fortest bucket file (one bucket or an array of them) ---
   const isArray = Array.isArray(parsed);
-  const buckets = (isArray ? (parsed as unknown[]) : [parsed]).map(bucketService.prepareImport); // validates all before saving any
+  const buckets = (isArray ? (parsed as unknown[]) : [parsed]).map(prepareImport); // validates all before saving any
   for (const bucket of buckets) await bucketService.saveBucket(bucket);
   res.status(201).json(isArray ? buckets : buckets[0]);
 });

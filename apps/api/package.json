@@ -9,6 +9,8 @@
     "test": "tsx --test src/core.test.ts"
   },
   "dependencies": {
+    "@codegrenade/fortest-cli": "workspace:*",
+    "@fortest/engine": "workspace:*",
     "@fortest/types": "workspace:*",
     "@fortest/utils": "workspace:*",
     "express": "^5.1.0",

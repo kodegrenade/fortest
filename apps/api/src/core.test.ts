@@ -16,6 +16,7 @@ import {
   secretsOf,
 } from '@fortest/utils';
 import {
+  BUCKET_FORMAT_VERSION,
   StepSchema,
   TestBucketSchema,
   type Assertion,
@@ -28,9 +29,6 @@ import {
   type StepResult,
   type TestBucket,
 } from '@fortest/types';
-import { extractValue } from './services/extractionService';
-import { evaluateAssertion } from './services/assertionService';
-import { isPostmanCollection, convertPostmanCollection } from './services/postmanConverter';
 import {
   cancelRun,
   failOrphanedRuns,
@@ -39,14 +37,21 @@ import {
   getRunSummary,
   runGroup,
 } from './services/runnerService';
-import { computeMetrics, executeGroup, joinUrl, resolveConfig } from './services/executor';
 import { getStorageAdapter } from './services/storage';
+import { saveBucket, getBucketById } from './services/bucketService';
 import {
-  saveBucket,
+  computeMetrics,
+  convertPostmanCollection,
+  evaluateAssertion,
+  executeGroup,
+  extractValue,
+  isPostmanCollection,
+  joinUrl,
   prepareImport,
-  getBucketById,
+  resolveConfig,
+  toExportFile,
   withoutSecretValues,
-} from './services/bucketService';
+} from '@fortest/engine';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -1490,4 +1495,24 @@ test('CLI: --max-p95 fails an action group over its latency budget, and says so 
 
   assert.equal((await fortest('run', file, '--max-p95', 'fast')).code, 2);
   assert.equal((await fortest('run', file, '--max-p95', '0')).code, 2);
+});
+
+// --- Bucket file format version ---
+
+test('bucket files: exports carry formatVersion; newer formats are refused with a clear message', () => {
+  const bucket = prepareImport({ name: 'v' });
+  const exported = toExportFile(bucket);
+  assert.equal(exported.formatVersion, BUCKET_FORMAT_VERSION);
+  assert.equal(Object.keys(exported)[0], 'formatVersion', 'first in the file');
+
+  assert.equal(prepareImport(JSON.parse(JSON.stringify(exported))).name, 'v', 'exports re-import');
+  assert.equal(
+    prepareImport({ name: 'no version' }).name,
+    'no version',
+    'files from before formatVersion are version 1',
+  );
+  assert.throws(
+    () => prepareImport({ formatVersion: BUCKET_FORMAT_VERSION + 1, name: 'future' }),
+    /uses format version 2; this version of Fortest reads up to 1\. Upgrade Fortest/,
+  );
 });

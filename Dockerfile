@@ -9,6 +9,8 @@ COPY package.json pnpm-lock.yaml pnpm-workspace.yaml turbo.json tsconfig.base.js
 # Copy package manifests for workspace installation caching
 COPY packages/types/package.json ./packages/types/
 COPY packages/utils/package.json ./packages/utils/
+COPY packages/engine/package.json ./packages/engine/
+COPY packages/cli/package.json ./packages/cli/
 COPY apps/api/package.json ./apps/api/
 COPY apps/web/package.json ./apps/web/
 
@@ -23,15 +25,17 @@ RUN pnpm --filter @fortest/web build
 
 # Stage 2: Runner image
 FROM node:20-alpine AS runner
+LABEL org.opencontainers.image.source="https://github.com/kodegrenade/fortest" \
+      org.opencontainers.image.description="Fortest: API flow testing app and CLI" \
+      org.opencontainers.image.licenses="MIT"
 RUN corepack enable
 WORKDIR /app
 
 # Copy workspace root manifests
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml turbo.json tsconfig.base.json ./
 
-# Copy shared packages
-COPY packages/types ./packages/types
-COPY packages/utils ./packages/utils
+# Copy shared packages (types, utils, the engine and the CLI)
+COPY packages ./packages
 
 # Copy API backend
 COPY apps/api ./apps/api

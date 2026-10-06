@@ -59,6 +59,7 @@ The top-level container that groups related Action Groups and defines environmen
 
 | Property | Type | Required / Optional | Description |
 | :--- | :--- | :--- | :--- |
+| `formatVersion` | Number | Optional | The file format version, written by **Export** (currently `1`). Files without it are read as version 1; a file from a newer format is refused with a request to upgrade Fortest. |
 | `name` | String | **Required** | The name of the bucket (e.g., "Payment Service API"). |
 | `baseUrl` | String | **Required** | The base URL prefixed to all step paths (e.g., `https://api.myapp.com`). Default: `""`. |
 | `auth` | Object | Optional | Global authenticator inherited by all steps. Default: `{ type: "none" }`. |
@@ -413,7 +414,9 @@ Action Group step names can safely contain spaces:
 The project is structured as a monorepo coordinated by `pnpm` workspaces and `turborepo`:
 
 - **`apps/web`**: Single Page Application built using React, Vite, and CSS. Handles configuration, drag-and-drop timeline management, and real-time execution dashboards.
-- **`apps/api`**: Node.js Express server and the `fortest` CLI. Both use the same execution engine (`services/executor.ts`) for variables, extractions, assertions and concurrent load runs; the server adds run storage and WebSocket streaming.
+- **`apps/api`**: Node.js Express server: run storage (Redis or in-memory), WebSocket streaming and the web app's API. Its entry point also runs the CLI (`fortest serve` in Docker).
+- **`packages/engine`**: The execution engine (variables, extractions, assertions, retries, concurrent load runs) and bucket-file import/export, with no storage or server, so the server and the CLI run the same code.
+- **`packages/cli`**: The `fortest` command, published to npm as `@codegrenade/fortest-cli` as a single bundled file (see [RELEASING.md](RELEASING.md)).
 - **`packages/types`**: Shared Zod schemas and TypeScript models representing buckets, steps, results, and metrics.
 - **`packages/utils`**: Core shared libraries (including the template string variables interpolator).
 
@@ -459,15 +462,29 @@ Use this method if you are making code changes and need hot-reloading (HMR) to r
 
 The `fortest` CLI runs a bucket file (an exported JSON/YAML bucket, or a Postman collection) without the server or Redis, and fails with a non-zero exit code when any step or assertion fails. It runs the same engine as the web app.
 
+### Installing the CLI
+
+| How | Command |
+| :--- | :--- |
+| On your machine (Node.js 20.3+) | `npm install -g @codegrenade/fortest-cli`, then `fortest run …` |
+| Pinned per project | `npm install -D @codegrenade/fortest-cli`, then `"test:api": "fortest run tests/api.yaml"` in `package.json` |
+| Without installing | `npx @codegrenade/fortest-cli run …` |
+| Without Node.js | `docker run --rm -v "$PWD:/work" ghcr.io/kodegrenade/fortest run /work/tests/api.yaml` |
+| From this repository | `pnpm fortest run …` |
+
+The npm package and the `ghcr.io` image are published by the release workflow from the first release onward (see [RELEASING.md](RELEASING.md)). The package bundles everything it needs and has no dependencies.
+
+### Usage
+
 ```bash
-pnpm fortest run tests/shop-api.yaml                         # all action groups
-pnpm fortest run tests/shop-api.yaml --group "Checkout Flow" # just one (repeatable)
-pnpm fortest run tests/shop-api.yaml --env staging          # pick an environment ("none" for none)
-pnpm fortest run tests/shop-api.yaml --var token=$API_TOKEN  # set/override variables, e.g. secrets (redacted in the output)
-pnpm fortest run tests/shop-api.yaml --junit report.xml      # JUnit XML for CI test summaries
-pnpm fortest run tests/shop-api.yaml --iterations 50 --concurrency 10   # load run
-pnpm fortest run tests/shop-api.yaml --max-p95 500           # latency budget: fail a group whose p95 > 500 ms
-pnpm fortest --help
+fortest run tests/shop-api.yaml                         # all action groups
+fortest run tests/shop-api.yaml --group "Checkout Flow" # just one (repeatable)
+fortest run tests/shop-api.yaml --env staging          # pick an environment ("none" for none)
+fortest run tests/shop-api.yaml --var token=$API_TOKEN  # set/override variables, e.g. secrets (redacted in the output)
+fortest run tests/shop-api.yaml --junit report.xml      # JUnit XML for CI test summaries
+fortest run tests/shop-api.yaml --iterations 50 --concurrency 10   # load run
+fortest run tests/shop-api.yaml --max-p95 500           # latency budget: fail a group whose p95 > 500 ms
+fortest --help
 ```
 
 | Exit code | Meaning |
@@ -477,14 +494,14 @@ pnpm fortest --help
 | `2` | Bad input: unreadable or invalid file, unknown option, unknown `--group` or `--env` |
 | `130` | Interrupted with Ctrl+C (the JUnit report is still written) |
 
-`pnpm` reports any failure as exit code `1`; run the Docker image (below) or `apps/api/node_modules/.bin/tsx apps/api/src/cli.ts` directly to see the exact code. Bucket files are the same format as the app's **Export** (see the schema guide above), so the usual workflow is: build the flow in the app, export it into your repo, run it in CI.
+Inside this repository, `pnpm fortest` reports any failure as exit code `1`; the installed `fortest` command and the Docker image return the exact code. Bucket files are the same format as the app's **Export** (see the schema guide above), so the usual workflow is: build the flow in the app, export it into your repo, run it in CI.
 
 With Docker, the image runs the CLI when given a command (and serves the app otherwise):
 
 ```bash
-docker build -t fortest .
-docker run --rm -v "$PWD:/work" --user "$(id -u):$(id -g)" fortest run /work/tests/shop-api.yaml --junit /work/report.xml
-docker run --rm -p 127.0.0.1:3001:3001 fortest            # the app, without Redis (in-memory storage)
+docker run --rm -v "$PWD:/work" --user "$(id -u):$(id -g)" ghcr.io/kodegrenade/fortest run /work/tests/shop-api.yaml --junit /work/report.xml
+docker run --rm -p 127.0.0.1:3001:3001 ghcr.io/kodegrenade/fortest     # the app, without Redis (in-memory storage)
+docker build -t fortest .                                                # or build the image from this repository
 ```
 
 - Inside a container, `localhost` is the container itself. To test an API running on your machine, point the bucket (or an environment) at `http://host.docker.internal:<port>` (Docker Desktop provides this name; with plain Docker Engine on Linux add `--add-host=host.docker.internal:host-gateway`, and the API must listen on more than `127.0.0.1`).
@@ -492,6 +509,8 @@ docker run --rm -p 127.0.0.1:3001:3001 fortest            # the app, without Red
 - Exit codes come through `docker run` unchanged (`0`, `1`, `2`, `130`).
 
 ### GitHub Actions example
+
+In any repository that holds your bucket files:
 
 ```yaml
 name: API tests
@@ -502,18 +521,15 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
-        with: { version: 9.15.0 }
       - uses: actions/setup-node@v4
-        with: { node-version: 20, cache: pnpm }
-      - run: pnpm install --frozen-lockfile
-      - run: pnpm fortest run tests/shop-api.yaml --env staging --var token=${{ secrets.API_TOKEN }} --junit fortest-report.xml
+        with: { node-version: 20 }
+      - run: npx @codegrenade/fortest-cli run tests/shop-api.yaml --env staging --var token=${{ secrets.API_TOKEN }} --junit fortest-report.xml
       - uses: mikepenz/action-junit-report@v4 # shows per-step results on the run and PR
         if: always()
         with: { report_paths: fortest-report.xml }
 ```
 
-The CLI isn't published to npm yet, so this example runs from a checkout of this repository; to test another project's API, keep its bucket files here or build the Docker image in that pipeline.
+Pin the version once your flows depend on it (for example `npx @codegrenade/fortest-cli@1.2.3 …`, or a `devDependency`), so pipelines don't change behaviour on a new release.
 
 ---
 

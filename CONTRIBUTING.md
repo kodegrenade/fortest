@@ -47,6 +47,9 @@ git checkout -b feature/your-feature-name
 git checkout -b bugfix/your-fix-name
 ```
 
+### Commit messages
+Use [conventional commit](https://www.conventionalcommits.org/) prefixes (`feat:`, `fix:`, `docs:`, `chore:`, …). They decide release version numbers and become the public release notes, so describe the change for users (see [RELEASING.md](RELEASING.md)).
+
 ### 2. Coding Guidelines
 - **CSS Styling**: We use Vanilla CSS styled with CSS variables (e.g. `var(--border-primary)`) to support multiple presets (Dracula, Cyberpunk, Nord, Monokai). Do not write inline hardcoded hex colors or install external styling frameworks like Tailwind unless coordinate changes explicitly require it.
 - **State Management**: Keep client state coordinated in appropriate Zustand stores under `apps/web/src/stores/`.

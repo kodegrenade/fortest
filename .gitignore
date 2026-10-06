@@ -6,6 +6,9 @@ dist/
 build/
 *.tsbuildinfo
 
+# Private maintainer notes
+*.local.md
+
 # Environment
 .env
 .env.local

@@ -1,0 +1,27 @@
+{
+  "name": "@codegrenade/fortest-cli",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Run Fortest API flow tests (exported buckets or Postman collections) from the command line and CI.",
+  "license": "MIT",
+  "main": "./src/cli.ts",
+  "exports": {
+    ".": "./src/cli.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "build": "node build.mjs",
+    "test:package": "node scripts/smoke-test.mjs"
+  },
+  "dependencies": {
+    "@fortest/engine": "workspace:*",
+    "@fortest/types": "workspace:*",
+    "@fortest/utils": "workspace:*",
+    "yaml": "^2.9.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.17.0",
+    "esbuild": "^0.25.0",
+    "typescript": "^5.8.0"
+  }
+}

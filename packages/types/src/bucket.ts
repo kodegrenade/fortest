@@ -128,6 +128,11 @@ export const EnvironmentSchema = z.object({
 });
 export type Environment = z.infer<typeof EnvironmentSchema>;
 
+// --- Bucket file format ---
+// Exported bucket files carry `formatVersion`, so files committed to repositories keep working
+// (or fail clearly) as the format evolves. Bump it on breaking changes, with a migration on import.
+export const BUCKET_FORMAT_VERSION = 1;
+
 // --- Test Bucket ---
 // Top-level container scoped to one API service.
 

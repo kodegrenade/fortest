@@ -1,5 +1,4 @@
 import { randomUUID } from 'node:crypto';
-import { z } from 'zod';
 import { TestBucketSchema, type TestBucket } from '@fortest/types';
 import { getStorageAdapter } from './storage';
 
@@ -109,75 +108,4 @@ export async function saveBucket(bucket: TestBucket): Promise<void> {
   const adapter = getStorageAdapter();
   await adapter.set(getBucketKey(bucket.id), JSON.stringify(bucket));
   await adapter.sadd(INDEX_KEY, bucket.id);
-}
-
-const ImportedBucketShape = z
-  .record(z.string(), z.any())
-  .refine((o) => ['name', 'baseUrl', 'variables', 'actionGroups'].some((key) => key in o), {
-    message: 'Not a Fortest bucket file: expected name, baseUrl, variables or actionGroups',
-  });
-
-/**
- * Turns an imported bucket file into a valid bucket: fresh ids everywhere (so re-importing never
- * collides), timestamps and names/orders filled in, everything else defaulted by the schema.
- * Throws a ZodError (-> 400) on unknown top-level keys or invalid content.
- */
-export function prepareImport(input: unknown): TestBucket {
-  const raw = ImportedBucketShape.parse(input);
-  const now = new Date().toISOString();
-  const list = (value: unknown): any[] => (Array.isArray(value) ? value : []);
-  const fresh = (o: any) => ({
-    ...o,
-    id: randomUUID(),
-    createdAt: o?.createdAt ?? now,
-    updatedAt: now,
-  });
-  const withIds = (value: unknown) => list(value).map((o) => ({ ...o, id: randomUUID() }));
-
-  // Environments get fresh ids too, so the active one is re-pointed. Hand-written files can
-  // name it instead (activeEnvironmentId: staging), since they have no ids to refer to.
-  const environments = list(raw.environments).map((env) => ({
-    ...env,
-    id: randomUUID(),
-    variables: withIds(env.variables),
-  }));
-  const active = list(raw.environments).findIndex(
-    (env) =>
-      raw.activeEnvironmentId != null &&
-      (env?.id === raw.activeEnvironmentId || env?.name === raw.activeEnvironmentId),
-  );
-
-  return TestBucketSchema.strict().parse({
-    name: 'Imported Bucket',
-    ...fresh(raw),
-    variables: withIds(raw.variables),
-    environments,
-    activeEnvironmentId: environments[active]?.id ?? null,
-    actionGroups: list(raw.actionGroups).map((group, gIdx) => ({
-      name: `Action Group ${gIdx + 1}`,
-      order: gIdx,
-      ...fresh(group),
-      dataStore: group.dataStore && { name: 'Data Store', ...fresh(group.dataStore) },
-      steps: list(group.steps).map((step, sIdx) => ({
-        name: `Step ${sIdx + 1}`,
-        order: sIdx,
-        ...fresh(step),
-        headers: withIds(step.headers),
-        params: withIds(step.params),
-        extractions: withIds(step.extractions),
-        assertions: withIds(step.assertions),
-      })),
-    })),
-  });
-}
-
-/** A bucket as exported: secret variables keep their key and flag but lose their value. */
-export function withoutSecretValues(bucket: TestBucket): TestBucket {
-  const blank = (vars: TestBucket['variables']) =>
-    vars.map((v) => (v.secret ? { ...v, value: '' } : v));
-  return {
-    ...bucket,
-    variables: blank(bucket.variables),
-    environments: bucket.environments.map((env) => ({ ...env, variables: blank(env.variables) })),
-  };
 }

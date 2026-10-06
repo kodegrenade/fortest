@@ -1,6 +1,6 @@
 import { getBucketById } from './bucketService';
 import { getStorageAdapter } from './storage';
-import { executeGroup, resolveConfig } from './executor';
+import { executeGroup, resolveConfig } from '@fortest/engine';
 import { activeEnvironment, detectRegression } from '@fortest/utils';
 import type {
   StepResult,
